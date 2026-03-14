@@ -1,0 +1,35 @@
+{
+  "name": "threads-smart-bot",
+  "version": "0.1.0",
+  "description": "CLI bot that crawls Threads, crafts Bahasa Indonesia posts via OpenRouter, and publishes them twice daily",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/index.js",
+    "auth": "node dist/index.js auth",
+    "run:once": "node dist/index.js run",
+    "run:dry": "node dist/index.js run --dry",
+    "dev": "tsx src/index.ts",
+    "dev:auth": "tsx src/index.ts auth",
+    "dev:run": "tsx src/index.ts run",
+    "dev:run:dry": "tsx src/index.ts run --dry"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.2"
+  }
+}

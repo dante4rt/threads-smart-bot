@@ -1,0 +1,30 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: threads-smart-bot:latest
+    container_name: threads-smart-bot
+    restart: unless-stopped
+
+    # Load secrets from .env (copy .env.example → .env and fill in values)
+    env_file:
+      - .env
+
+    # Hard-pin the DB path so it always lands on the volume regardless of .env
+    environment:
+      DB_PATH: /app/data/state.db
+
+    volumes:
+      - bot-data:/app/data
+
+    # Bounded log rotation — the bot is chatty, keep it sane
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:
+    driver: local

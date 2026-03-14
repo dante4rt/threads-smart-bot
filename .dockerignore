@@ -1,0 +1,13 @@
+# Keep build context lean — only src + config reaches the daemon
+node_modules/
+dist/
+data/
+coverage/
+test/
+docs/
+
+.env
+*.env.local
+*.log
+.git/
+.DS_Store
