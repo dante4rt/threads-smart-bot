@@ -1,6 +1,7 @@
 // src/index.ts — Entry point: CLI arg dispatch + cron scheduler
 
 import { createInterface } from 'readline';
+import { randomBytes } from 'crypto';
 import cron from 'node-cron';
 import { getConfig } from './config.js';
 import { getDb } from './db.js';
@@ -8,6 +9,7 @@ import { ThreadsClient } from './threads-api.js';
 import { runPipeline } from './pipeline.js';
 import { logger } from './logger.js';
 import { parseTime, toCronExpr } from './utils.js';
+import { RunLockError } from './errors.js';
 
 // Load .env if present (dev convenience — production uses actual env vars)
 try {
@@ -47,7 +49,8 @@ async function runAuth(): Promise<void> {
   const db = getDb(config.dbPath);
   const client = new ThreadsClient(config, db);
 
-  const authUrl = client.buildAuthUrl();
+  const expectedState = randomBytes(24).toString('hex');
+  const authUrl = client.buildAuthUrl(expectedState);
   console.log('\n── Threads OAuth ──────────────────────────────────────────');
   console.log('1. Open this URL in your browser:\n');
   console.log(`   ${authUrl}\n`);
@@ -67,7 +70,9 @@ async function runAuth(): Promise<void> {
   try {
     const parsed = new URL(redirectUrl);
     const rawCode = parsed.searchParams.get('code');
+    const returnedState = parsed.searchParams.get('state');
     if (!rawCode) throw new Error('No "code" param in redirect URL');
+    if (returnedState !== expectedState) throw new Error('OAuth state mismatch');
     code = rawCode;
   } catch (err) {
     logger.error('Failed to parse redirect URL', { error: (err as Error).message });
@@ -129,6 +134,10 @@ async function startScheduler(): Promise<void> {
         try {
           await runPipeline(config, db);
         } catch (err) {
+          if (err instanceof RunLockError) {
+            logger.warn('Skipping overlapping scheduled run', { time: timeStr });
+            return;
+          }
           logger.error('Cron pipeline error', { error: (err as Error).message });
         }
       },
@@ -142,6 +151,7 @@ async function startScheduler(): Promise<void> {
   const shutdown = (signal: string) => {
     logger.info(`${signal} received, stopping scheduler`);
     for (const task of scheduledTasks) task.stop();
+    db.pragma('wal_checkpoint(TRUNCATE)');
     db.close();
     process.exit(0);
   };

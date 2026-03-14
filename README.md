@@ -17,7 +17,7 @@ CLI bot that runs on a cron schedule, crawls trending Threads posts via keyword 
 ## Setup
 
 ```bash
-git clone <repo>
+git clone https://github.com/dante4rt/threads-smart-bot.git
 cd threads-smart-bot
 npm install
 cp .env.example .env   # fill in required values
@@ -44,6 +44,11 @@ After this, `THREADS_ACCESS_TOKEN` in `.env` is no longer read — SQLite is the
 
 > [!NOTE]
 > `THREADS_REDIRECT_URI` must match the redirect URI registered in your Meta app exactly. Defaults to `https://localhost/callback`.
+
+---
+
+> [!NOTE]
+> The CLI now validates the OAuth `state` parameter before accepting the callback URL.
 
 ---
 
@@ -93,8 +98,11 @@ Copy `.env.example` and fill in:
 Long-lived tokens last **60 days**. The bot auto-refreshes at the **10-day mark** (≤10 days remaining):
 
 - Each pipeline run calls `maybeRefreshToken()` before any API work.
+- Authenticated Threads requests also retry once after a forced token refresh if Threads returns `401`.
 - A successful refresh extends the token by another 60 days.
 - If the bot was offline and the token expired, the next run logs an `AUTH_ERROR` and skips that run.
+
+Tokens saved in SQLite are encrypted at rest using your `THREADS_APP_SECRET`, and the runtime locks down DB filesystem permissions on the local `data/` directory.
 
 ### Recovery after expiry
 

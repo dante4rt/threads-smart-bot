@@ -86,11 +86,11 @@ export async function runPipeline(
     );
 
     const safeText = truncate(generatedText, MAX_POST_CHARS);
-    logger.info('Post crafted', { length: safeText.length, text: safeText });
+    logger.info('Post crafted', { length: safeText.length });
 
     // ── Stage 3: Publish ──────────────────────────────────────────────────
     if (effectiveDryRun) {
-      logger.info('DRY RUN — would publish', { text: safeText });
+      logger.info('DRY RUN — would publish generated post', { length: safeText.length });
       savePost(db, {
         source_query: selectedQueries.join(','),
         source_post_ids: JSON.stringify(allPosts.slice(0, 10).map((p) => p.id)),

@@ -4,6 +4,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { saveToken, loadToken, savePost, getRecentPosts, startRun, completeRun, countRecentFailures } from '../src/db.js';
 
+const ENCRYPTION_SECRET = 'threads-app-secret-for-tests';
+
 function createTestDb(): Database.Database {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
@@ -46,22 +48,29 @@ afterEach(() => {
 describe('token helpers', () => {
   it('saves and loads a token', () => {
     const expiresAt = new Date('2025-01-01T00:00:00Z');
-    saveToken(db, 'test-token-123', expiresAt);
-    const token = loadToken(db);
+    saveToken(db, 'test-token-123', expiresAt, ENCRYPTION_SECRET);
+    const token = loadToken(db, ENCRYPTION_SECRET);
     expect(token).toBeDefined();
     expect(token!.access_token).toBe('test-token-123');
     expect(token!.expires_at).toBe('2025-01-01T00:00:00.000Z');
   });
 
   it('overwrites existing token', () => {
-    saveToken(db, 'old-token', new Date('2025-01-01T00:00:00Z'));
-    saveToken(db, 'new-token', new Date('2025-06-01T00:00:00Z'));
-    const token = loadToken(db);
+    saveToken(db, 'old-token', new Date('2025-01-01T00:00:00Z'), ENCRYPTION_SECRET);
+    saveToken(db, 'new-token', new Date('2025-06-01T00:00:00Z'), ENCRYPTION_SECRET);
+    const token = loadToken(db, ENCRYPTION_SECRET);
     expect(token!.access_token).toBe('new-token');
   });
 
   it('returns undefined when no token', () => {
-    expect(loadToken(db)).toBeUndefined();
+    expect(loadToken(db, ENCRYPTION_SECRET)).toBeUndefined();
+  });
+
+  it('stores encrypted token payload at rest', () => {
+    saveToken(db, 'secret-token', new Date('2025-01-01T00:00:00Z'), ENCRYPTION_SECRET);
+    const row = db.prepare('SELECT access_token FROM tokens WHERE id = 1').get() as { access_token: string };
+    expect(row.access_token).not.toBe('secret-token');
+    expect(row.access_token.startsWith('enc:v1:')).toBe(true);
   });
 });
 

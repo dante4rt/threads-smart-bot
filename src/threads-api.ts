@@ -55,8 +55,7 @@ async function apiFetch<T>(
     throw new TransientError(`Threads API server error ${res.status}`, res.status);
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Threads API error ${res.status}: ${body}`);
+    throw new Error(`Threads API error ${res.status}`);
   }
 
   return res.json() as Promise<T>;
@@ -72,21 +71,36 @@ export class ThreadsClient {
 
   /** Get the current access token from DB, falling back to env var. */
   getAccessToken(): string {
-    const token = loadToken(this.db);
+    const token = loadToken(this.db, this.config.threadsAppSecret);
     if (token) return token.access_token;
     if (this.config.threadsAccessToken) return this.config.threadsAccessToken;
     throw new AuthError('No access token found — run `auth` first');
   }
 
+  private async withAuthRetry<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (error) {
+      if (!(error instanceof AuthError)) {
+        throw error;
+      }
+
+      logger.warn('Threads token rejected, attempting refresh');
+      await this.refreshToken();
+      return request();
+    }
+  }
+
   // ── Auth flow ────────────────────────────────────────────────────────────
 
   /** Build the OAuth authorization URL to send the user to. */
-  buildAuthUrl(): string {
+  buildAuthUrl(state: string): string {
     const params = new URLSearchParams({
       client_id: this.config.threadsAppId,
       redirect_uri: this.config.threadsRedirectUri,
       scope: 'threads_basic,threads_content_publish,threads_keyword_search',
       response_type: 'code',
+      state,
     });
     return `${AUTH_BASE}/authorize?${params}`;
   }
@@ -113,18 +127,20 @@ export class ThreadsClient {
 
   /** Exchange short-lived token → long-lived token (60 days). */
   async getLongLivedToken(shortLivedToken: string): Promise<LongLivedTokenResponse> {
-    const params = new URLSearchParams({
+    const body = new URLSearchParams({
       grant_type: 'th_exchange_token',
       client_secret: this.config.threadsAppSecret,
       access_token: shortLivedToken,
     });
 
-    const result = await apiFetch<LongLivedTokenResponse>(
-      `${BASE_URL}/access_token?${params}`,
-    );
+    const result = await apiFetch<LongLivedTokenResponse>(`${BASE_URL}/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
 
     const expiresAt = new Date(Date.now() + result.expires_in * 1000);
-    saveToken(this.db, result.access_token, expiresAt);
+    saveToken(this.db, result.access_token, expiresAt, this.config.threadsAppSecret);
     logger.info('Long-lived token obtained', { expiresAt: expiresAt.toISOString() });
     return result;
   }
@@ -132,23 +148,25 @@ export class ThreadsClient {
   /** Refresh long-lived token before expiry. */
   async refreshToken(): Promise<void> {
     const currentToken = this.getAccessToken();
-    const params = new URLSearchParams({
+    const body = new URLSearchParams({
       grant_type: 'th_refresh_token',
       access_token: currentToken,
     });
 
-    const result = await apiFetch<LongLivedTokenResponse>(
-      `${BASE_URL}/refresh_access_token?${params}`,
-    );
+    const result = await apiFetch<LongLivedTokenResponse>(`${BASE_URL}/refresh_access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
 
     const expiresAt = new Date(Date.now() + result.expires_in * 1000);
-    saveToken(this.db, result.access_token, expiresAt);
+    saveToken(this.db, result.access_token, expiresAt, this.config.threadsAppSecret);
     logger.info('Token refreshed', { expiresAt: expiresAt.toISOString() });
   }
 
   /** Check if the stored token is nearing expiry (within 10 days) and refresh. */
   async maybeRefreshToken(): Promise<void> {
-    const token = loadToken(this.db);
+    const token = loadToken(this.db, this.config.threadsAppSecret);
     if (!token) return;
 
     const expiresAt = new Date(token.expires_at);
@@ -173,11 +191,14 @@ export class ThreadsClient {
       q: query,
       search_type: 'TOP',
       limit: String(limit),
-      access_token: this.getAccessToken(),
     });
 
-    const result = await apiFetch<SearchResult>(
-      `${BASE_URL}/keyword_search?${params}`,
+    const result = await this.withAuthRetry<SearchResult>(() =>
+      apiFetch<SearchResult>(`${BASE_URL}/keyword_search?${params}`, {
+        headers: {
+          Authorization: `Bearer ${this.getAccessToken()}`,
+        },
+      }),
     );
 
     logger.debug('Keyword search', { query, count: result.data.length });
@@ -193,7 +214,6 @@ export class ThreadsClient {
   ): Promise<string> {
     const params = new URLSearchParams({
       text,
-      access_token: this.getAccessToken(),
     });
 
     if (imageUrl) {
@@ -203,13 +223,15 @@ export class ThreadsClient {
       params.set('media_type', 'TEXT');
     }
 
-    const result = await apiFetch<MediaContainerResult>(
-      `${BASE_URL}/${this.config.threadsUserId}/threads`,
-      {
+    const result = await this.withAuthRetry<MediaContainerResult>(() =>
+      apiFetch<MediaContainerResult>(`${BASE_URL}/${this.config.threadsUserId}/threads`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Bearer ${this.getAccessToken()}`,
+        },
         body: params.toString(),
-      },
+      }),
     );
 
     logger.debug('Media container created', { containerId: result.id });
@@ -220,16 +242,17 @@ export class ThreadsClient {
   async publishMediaContainer(containerId: string): Promise<string> {
     const params = new URLSearchParams({
       creation_id: containerId,
-      access_token: this.getAccessToken(),
     });
 
-    const result = await apiFetch<MediaContainerResult>(
-      `${BASE_URL}/${this.config.threadsUserId}/threads_publish`,
-      {
+    const result = await this.withAuthRetry<MediaContainerResult>(() =>
+      apiFetch<MediaContainerResult>(`${BASE_URL}/${this.config.threadsUserId}/threads_publish`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Bearer ${this.getAccessToken()}`,
+        },
         body: params.toString(),
-      },
+      }),
     );
 
     logger.info('Post published', { postId: result.id });

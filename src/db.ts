@@ -1,8 +1,9 @@
 // src/db.ts — SQLite setup and typed query helpers
 
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 
 export interface Post {
   id: number;
@@ -32,8 +33,13 @@ let _db: Database.Database | undefined;
 
 export function getDb(dbPath = 'data/state.db'): Database.Database {
   if (_db) return _db;
-  mkdirSync(dirname(dbPath), { recursive: true });
+  const dbDir = dirname(dbPath);
+  mkdirSync(dbDir, { recursive: true, mode: 0o700 });
+  chmodSync(dbDir, 0o700);
   _db = new Database(dbPath);
+  if (existsSync(dbPath)) {
+    chmodSync(dbPath, 0o600);
+  }
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   migrate(_db);
@@ -76,10 +82,46 @@ function migrate(db: Database.Database): void {
 
 // ── Token helpers ────────────────────────────────────────────────────────────
 
+function deriveTokenKey(secret: string): Buffer {
+  return createHash('sha256').update(secret).digest();
+}
+
+function encryptToken(accessToken: string, secret: string): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', deriveTokenKey(secret), iv);
+  const encrypted = Buffer.concat([cipher.update(accessToken, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:v1:${iv.toString('base64')}:${tag.toString('base64')}:${encrypted.toString('base64')}`;
+}
+
+function decryptToken(payload: string, secret: string): string {
+  if (!payload.startsWith('enc:v1:')) {
+    return payload;
+  }
+
+  const [, , ivBase64, tagBase64, cipherBase64] = payload.split(':');
+  if (!ivBase64 || !tagBase64 || !cipherBase64) {
+    throw new Error('Stored token payload is malformed');
+  }
+
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    deriveTokenKey(secret),
+    Buffer.from(ivBase64, 'base64'),
+  );
+  decipher.setAuthTag(Buffer.from(tagBase64, 'base64'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(cipherBase64, 'base64')),
+    decipher.final(),
+  ]);
+  return decrypted.toString('utf8');
+}
+
 export function saveToken(
   db: Database.Database,
   accessToken: string,
   expiresAt: Date,
+  encryptionSecret: string,
 ): void {
   db.prepare(`
     INSERT INTO tokens (id, access_token, refreshed_at, expires_at)
@@ -88,13 +130,21 @@ export function saveToken(
       access_token = excluded.access_token,
       refreshed_at = excluded.refreshed_at,
       expires_at   = excluded.expires_at
-  `).run(accessToken, new Date().toISOString(), expiresAt.toISOString());
+  `).run(encryptToken(accessToken, encryptionSecret), new Date().toISOString(), expiresAt.toISOString());
 }
 
-export function loadToken(db: Database.Database): Token | undefined {
-  return db
+export function loadToken(db: Database.Database, encryptionSecret: string): Token | undefined {
+  const token = db
     .prepare('SELECT * FROM tokens WHERE id = 1')
     .get() as Token | undefined;
+  if (!token) {
+    return undefined;
+  }
+
+  return {
+    ...token,
+    access_token: decryptToken(token.access_token, encryptionSecret),
+  };
 }
 
 // ── Post helpers ─────────────────────────────────────────────────────────────

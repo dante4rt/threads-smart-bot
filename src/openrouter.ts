@@ -38,7 +38,7 @@ export class OpenRouterClient {
         headers: {
           'Authorization': `Bearer ${this.config.openrouterApiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://github.com/threads-smart-bot',
+          'HTTP-Referer': 'https://github.com/dante4rt/threads-smart-bot',
           'X-Title': 'Threads Smart Bot',
         },
         body: JSON.stringify({
@@ -59,11 +59,14 @@ export class OpenRouterClient {
       throw new TransientError(`OpenRouter server error ${res.status}`, res.status);
     }
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`OpenRouter API error ${res.status}: ${body}`);
+      throw new Error(`OpenRouter API error ${res.status}`);
     }
 
     const data = (await res.json()) as ChatResponse;
+    if (!data.choices.length) {
+      throw new Error('OpenRouter returned no choices');
+    }
+
     const content = data.choices[0]?.message?.content;
     if (!content) {
       throw new Error('OpenRouter returned empty content');
