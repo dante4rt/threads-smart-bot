@@ -1,224 +1,152 @@
 # threads-smart-bot
 
-CLI bot that runs on a cron schedule, crawls trending Threads posts via keyword search, crafts an original Bahasa Indonesia post using OpenRouter, and publishes it to your Threads account — twice daily.
+CLI bot for Threads: crawl trending posts, generate one original Bahasa Indonesia post with OpenRouter, then publish and log it to SQLite.
 
-**Pipeline:** Keyword search → OpenRouter (Claude) → Threads publish → SQLite log
+Pipeline: `keyword search -> prompt -> optional image -> publish -> SQLite`
 
----
-
-## Requirements
-
-- Node.js ≥ 20
-- A Meta app with Threads API access (see [Permissions](#threads-permissions--app-review))
-- An [OpenRouter](https://openrouter.ai) API key
-
----
-
-## Setup
+## Quick Start
 
 ```bash
 git clone https://github.com/dante4rt/threads-smart-bot.git
 cd threads-smart-bot
 npm install
-cp .env.example .env   # fill in required values
+cp .env.example .env
 npm run build
 ```
 
-> [!IMPORTANT]
-> Run `npm run auth` before `npm start`. The scheduler will fail without a token in SQLite.
-
----
-
-## Auth Flow
-
 ```bash
+# 1) authenticate once
 npm run auth
-```
 
-Only `THREADS_APP_ID`, `THREADS_APP_SECRET`, and `THREADS_REDIRECT_URI` are needed for this step. `OPENROUTER_API_KEY` is only required when you actually run the content pipeline.
-
-1. Bot prints an OAuth URL — open it in your browser.
-2. Approve the app permissions on Threads.
-3. Copy the full redirect URL from your browser and paste it into the CLI.
-4. Bot exchanges the code for a short-lived token, captures your Threads `user_id`, then immediately upgrades to a long-lived token (~60 days) and stores both in `data/state.db`.
-
-After this, `THREADS_ACCESS_TOKEN` in `.env` is no longer read — SQLite is the token store.
-If `THREADS_USER_ID` was omitted, the bot will reuse the stored `user_id` automatically on later runs.
-
-> [!NOTE]
-> `THREADS_REDIRECT_URI` must match the redirect URI registered in your Meta app exactly. Defaults to `https://localhost/callback`.
-
----
-
-> [!NOTE]
-> The CLI now validates the OAuth `state` parameter before accepting the callback URL.
-
----
-
-## Run Modes
-
-| Command            | Behaviour                                                   |
-| ------------------ | ----------------------------------------------------------- |
-| `npm start`        | Scheduler mode — runs pipeline at each time in `POST_TIMES` |
-| `npm run post:test` | Publish one manual test post immediately                    |
-| `npm run run:once` | Run pipeline once and exit                                  |
-| `npm run run:dry`  | Crawl + craft, log generated text, **skip publish**         |
-
-Dev equivalents (no build required, uses `tsx`):
-
-```bash
-npm run dev           # scheduler
-npm run dev:auth      # auth flow
-npm run dev:post:test # direct publish smoke test
-npm run dev:run       # run once
-npm run dev:run:dry   # dry run
-```
-
-For immediate testing without waiting for cron:
-
-```bash
+# 2) smoke-test publishing immediately
 npm run dev:post:test -- --text "Hello from my Threads bot"
-```
 
-Dry run variant:
+# 3) test the full pipeline without posting
+npm run dev:run:dry
 
-```bash
-npm run dev:post:test -- --dry --text "Hello from my Threads bot"
-```
-
----
-
-## Environment Variables
-
-Copy `.env.example` and fill in:
-
-| Variable               | Required       | Default                      | Description                                    |
-| ---------------------- | -------------- | ---------------------------- | ---------------------------------------------- |
-| `THREADS_APP_ID`       | Yes            | —                            | Meta app ID                                    |
-| `THREADS_APP_SECRET`   | Yes            | —                            | Meta app secret                                |
-| `THREADS_USER_ID`      | No             | —                            | Optional override; auto-discovered during `auth` |
-| `THREADS_REDIRECT_URI` | No             | `https://localhost/callback` | Must match Meta app config                     |
-| `OPENROUTER_API_KEY`   | Yes            | —                            | OpenRouter API key                             |
-| `THREADS_ACCESS_TOKEN` | First run only | —                            | Bypassed after `auth`; SQLite takes over       |
-| `OPENROUTER_MODEL`     | No             | `anthropic/claude-opus-4-6`  | Any OpenRouter-supported model                 |
-| `SEARCH_QUERIES`       | No             | `viral,tech,AI,trending`     | Comma-separated Threads keyword queries        |
-| `MIN_SOURCE_POSTS`     | No             | `10`                         | Minimum unique crawled posts required before crafting |
-| `MIN_SOURCE_QUERIES`   | No             | `3`                          | Minimum distinct queries that must contribute usable source posts |
-| `MAX_SOURCE_POSTS_PER_QUERY` | No       | `4`                          | Caps how many posts from one query can feed the prompt |
-| `POST_TIMES`           | No             | `09:00,17:00`                | Comma-separated 24h times                      |
-| `TIMEZONE`             | No             | `Asia/Jakarta`               | IANA timezone name                             |
-| `UNSPLASH_ACCESS_KEY`  | No             | —                            | If set, attaches a relevant image to each post |
-| `DRY_RUN`              | No             | `false`                      | Set `true` to skip publishing globally         |
-| `DB_PATH`              | No             | `data/state.db`              | SQLite file path                               |
-
----
-
-## Token Refresh Behaviour
-
-Long-lived tokens last **60 days**. The bot auto-refreshes at the **10-day mark** (≤10 days remaining):
-
-- Each pipeline run calls `maybeRefreshToken()` before any API work.
-- Authenticated Threads requests also retry once after a forced token refresh if Threads returns `401`.
-- A successful refresh extends the token by another 60 days.
-- If the bot was offline and the token expired, the next run logs an `AUTH_ERROR` and skips that run.
-
-Tokens saved in SQLite are encrypted at rest using your `THREADS_APP_SECRET`, and the runtime locks down DB filesystem permissions on the local `data/` directory.
-
-### Recovery after expiry
-
-```bash
-npm run auth   # re-runs full OAuth flow; overwrites expired token in SQLite
+# 4) run the scheduler
 npm start
 ```
 
----
+> [!IMPORTANT]
+> Run `auth` in the same environment where the bot will run. Local auth writes to `data/state.db`. Docker auth writes to `/app/data/state.db` inside the Docker volume.
 
-## Dry-Run Mode
+> [!TIP]
+> `THREADS_USER_ID` can stay empty. The bot auto-discovers and stores it during `auth`.
 
-Dry-run crawls and crafts but **does not call the Threads publish API**.
+## Commands
 
-- Generated text is still logged to stdout.
-- A post record is still stored in SQLite with `threads_post_id = NULL`, so you keep a local audit trail.
-- Recent-post prompt context only uses published rows, so dry runs do not affect duplicate avoidance.
-- The bot now skips crafting entirely if it cannot gather at least `MIN_SOURCE_POSTS` unique source posts.
-- The bot also requires `MIN_SOURCE_QUERIES` distinct contributing queries, and it caps prompt influence with `MAX_SOURCE_POSTS_PER_QUERY`.
+| Command | Purpose |
+| --- | --- |
+| `npm run auth` | OAuth flow, stores long-lived token in SQLite |
+| `npm run post:test` | Publish one manual test post immediately |
+| `npm run run:once` | Run full pipeline once |
+| `npm run run:dry` | Run full pipeline without publishing |
+| `npm start` | Start scheduler using `POST_TIMES` |
+| `npm run dev:*` | Same commands via `tsx` without building |
 
-Enable per-run:
+Common dev commands:
 
 ```bash
-npm run run:dry
-# or
+npm run dev:auth
+npm run dev:post:test -- --dry --text "Smoke test"
+npm run dev:run
 npm run dev:run:dry
 ```
 
-Enable globally via env:
-
-```env
-DRY_RUN=true
-```
-
----
-
-## Docker Deployment
-
-This repo includes both `Dockerfile` and `docker-compose.yml`.
+## Docker
 
 ```bash
-cp .env.example .env
-# fill in real credentials first
 docker compose up -d --build
+docker compose run --rm bot node dist/index.js auth
+docker compose run --rm bot node dist/index.js post-test --dry --text "Docker smoke test"
+docker compose run --rm bot node dist/index.js run --dry
 ```
 
-Useful commands:
+What Docker does:
+- loads env from `.env`
+- forces `DB_PATH=/app/data/state.db`
+- persists SQLite in the named volume `bot-data`
+- starts the scheduler by default with `docker compose up -d`
 
-```bash
-docker compose logs -f bot
-docker compose run --rm bot node dist/index.js run
-docker compose run --rm -e DRY_RUN=true bot node dist/index.js run --dry
-docker compose down
-```
-
-> [!IMPORTANT]
-> The compose file mounts `/app/data` on a named volume so `state.db` survives container replacement. Run `npm run auth` locally first to create a valid token, then copy that SQLite file into the mounted volume or authenticate inside a one-off container session.
-
----
-
-## Error Handling
-
-| Error                     | Behaviour                                                          |
-| ------------------------- | ------------------------------------------------------------------ |
-| `401 AuthError`           | Attempt token refresh; if refresh fails, skip run and log critical |
-| `429 RateLimitError`      | Log warning, skip run (no retry)                                   |
-| `5xx / network`           | Retry up to 3 times with exponential backoff (1 s → 2 s → 4 s)     |
-| 3 consecutive failed runs | Log warning; scheduler stays alive                                 |
-| Process crash             | Docker `restart: unless-stopped` recovers automatically            |
-
----
-
-## Threads Permissions & App Review
-
-Your Meta app needs these scopes approved before the bot can function:
-
-| Scope                     | Purpose                 |
-| ------------------------- | ----------------------- |
-| `threads_basic`           | Core API access         |
-| `threads_content_publish` | Publishing posts        |
-| `threads_keyword_search`  | Crawling trending posts |
-
-Request approval in the [Meta Developer Console](https://developers.facebook.com) under **App Review → Permissions and Features**.
+> [!NOTE]
+> `.env` is injected at runtime by Compose. It is not copied into the image.
 
 > [!WARNING]
-> Without `threads_keyword_search` approved, the crawl stage will fail on every run. The bot will log `AUTH_ERROR` or a permissions error and skip publishing.
+> Do not mix `docker compose ... auth` with local `npm run ...` commands. If you auth in Docker, also run the bot in Docker.
 
----
+## Required Permissions
+
+Your Meta app needs:
+
+| Scope | Needed for |
+| --- | --- |
+| `threads_basic` | all Threads API calls |
+| `threads_content_publish` | publishing posts |
+| `threads_keyword_search` | crawl stage |
+
+Meta docs:
+- [Threads Get Started](https://developers.facebook.com/docs/threads/get-started/)
+- [Get Access Tokens](https://developers.facebook.com/docs/threads/get-started/get-access-tokens-and-permissions/)
+- [Long-Lived Tokens](https://developers.facebook.com/docs/threads/get-started/long-lived-tokens/)
+
+> [!WARNING]
+> Without `threads_keyword_search`, the bot can auth and publish manual tests, but the crawl-based pipeline will fail.
+
+## Environment
+
+<details>
+<summary>Environment Reference</summary>
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `THREADS_APP_ID` | — | Meta Threads app ID |
+| `THREADS_APP_SECRET` | — | Meta Threads app secret |
+| `THREADS_USER_ID` | empty | Optional override; auto-stored after auth |
+| `THREADS_REDIRECT_URI` | `https://localhost/callback` | Must match Meta app config exactly |
+| `OPENROUTER_API_KEY` | — | Required for crawl + craft pipeline |
+| `THREADS_ACCESS_TOKEN` | empty | Optional bootstrap fallback before SQLite exists |
+| `OPENROUTER_MODEL` | `anthropic/claude-opus-4-6` | OpenRouter model |
+| `SEARCH_QUERIES` | `viral,tech,AI,trending` | Seed queries for crawl |
+| `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
+| `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
+| `MAX_SOURCE_POSTS_PER_QUERY` | `4` | Caps prompt dominance from one query |
+| `POST_TIMES` | `09:00,17:00` | Scheduler times |
+| `TIMEZONE` | `Asia/Jakarta` | IANA timezone |
+| `UNSPLASH_ACCESS_KEY` | empty | Optional image search |
+| `DRY_RUN` | `false` | Skip publishing globally |
+| `DB_PATH` | `data/state.db` | SQLite path |
+
+</details>
+
+## Runtime Behavior
+
+- Auth exchanges a short-lived token for a long-lived token and stores it in SQLite.
+- Tokens auto-refresh near expiry.
+- If Unsplash fails, the bot posts text-only.
+- Crafting is skipped unless crawl coverage is good enough:
+  - at least `MIN_SOURCE_POSTS` unique posts
+  - at least `MIN_SOURCE_QUERIES` contributing queries
+- Prompt inputs are balanced by `MAX_SOURCE_POSTS_PER_QUERY` so one topic does not fully dominate.
+
+## Troubleshooting
+
+<details>
+<summary>Common Issues</summary>
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| `No access token found — run auth first` | Auth was done in a different environment | Re-run `auth` in the same environment you use to run the bot |
+| `Threads API error 400` on publish | Bad stored user ID or invalid request | Re-run `auth`; current code also auto-repairs bad stored IDs |
+| Crawl returns too few posts | Query set is too thin | Broaden `SEARCH_QUERIES` or lower crawl thresholds |
+| Images never attach | Unsplash key missing/invalid | Set `UNSPLASH_ACCESS_KEY` or accept text-only posts |
+
+</details>
 
 ## Development
 
 ```bash
-npm run build      # compile TypeScript → dist/
-npm run typecheck  # type-check without emitting
-npm test           # run Vitest test suite
-npm run test:watch # watch mode
+npm run build
+npm run typecheck
+npm test
 ```
-
-State is stored in `data/state.db` (auto-created). Delete it to reset token and post history.

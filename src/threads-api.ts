@@ -75,6 +75,8 @@ async function apiFetch<T>(
 // ── ThreadsClient ────────────────────────────────────────────────────────────
 
 export class ThreadsClient {
+  private resolvedThreadsUserId?: string;
+
   constructor(
     private readonly config: AuthConfig,
     private readonly db: Database,
@@ -93,16 +95,19 @@ export class ThreadsClient {
       return this.config.threadsUserId;
     }
 
-    const token = loadToken(this.db, this.config.threadsAppSecret);
-    if (token?.user_id && USER_ID_PATTERN.test(token.user_id)) {
-      return token.user_id;
+    if (this.resolvedThreadsUserId) {
+      return this.resolvedThreadsUserId;
     }
 
+    const token = loadToken(this.db, this.config.threadsAppSecret);
     const profile = await this.getCurrentUserProfile();
-    if (token) {
+    this.resolvedThreadsUserId = profile.id;
+
+    if (token && token.user_id !== profile.id) {
       updateTokenUserId(this.db, profile.id);
       logger.info('Repaired stored Threads user ID', { userId: profile.id });
     }
+
     return profile.id;
   }
 
@@ -150,7 +155,7 @@ export class ThreadsClient {
       body: body.toString(),
     });
 
-    const userId = String(result.user_id ?? (await this.getCurrentUserProfile(result.access_token)).id);
+    const userId = (await this.getCurrentUserProfile(result.access_token)).id;
 
     logger.info('Exchanged code for short-lived token', { userId });
     return {
