@@ -153,4 +153,4 @@ npm test
 
 ## License
 
-Licensed under the MIT License. See [LICENSE](/Users/dantezy/Downloads/Hacktiv8/AFTER-GRAD/TRY/Random/threads-smart-bot/LICENSE).
+Licensed under the MIT License. See [LICENSE](./LICENSE).
