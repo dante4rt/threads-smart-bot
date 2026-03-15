@@ -19,9 +19,10 @@ function parseBool(val: string): boolean {
 export interface Config {
   threadsAppId: string;
   threadsAppSecret: string;
-  threadsUserId: string;
+  threadsUserId?: string;
   threadsAccessToken: string | undefined; // only needed on very first run before auth
   threadsRedirectUri: string;
+  dbPath: string;
 
   openrouterApiKey: string;
   openrouterModel: string;
@@ -32,10 +33,37 @@ export interface Config {
 
   unsplashAccessKey: string | undefined;
   dryRun: boolean;
+}
+
+export interface AuthConfig {
+  threadsAppId: string;
+  threadsAppSecret: string;
+  threadsUserId?: string;
+  threadsAccessToken: string | undefined;
+  threadsRedirectUri: string;
   dbPath: string;
 }
 
 let _config: Config | undefined;
+let _authConfig: AuthConfig | undefined;
+
+/**
+ * Load only the env needed for Threads auth/bootstrap.
+ */
+export function getAuthConfig(): AuthConfig {
+  if (_authConfig) return _authConfig;
+
+  _authConfig = {
+    threadsAppId:       requireEnv('THREADS_APP_ID'),
+    threadsAppSecret:   requireEnv('THREADS_APP_SECRET'),
+    threadsUserId:      process.env['THREADS_USER_ID'],
+    threadsAccessToken: process.env['THREADS_ACCESS_TOKEN'],
+    threadsRedirectUri: optionalEnv('THREADS_REDIRECT_URI', 'https://localhost/callback'),
+    dbPath:             optionalEnv('DB_PATH', 'data/state.db'),
+  };
+
+  return _authConfig;
+}
 
 /**
  * Load and validate config from environment variables.
@@ -44,12 +72,10 @@ let _config: Config | undefined;
 export function getConfig(): Config {
   if (_config) return _config;
 
+  const authConfig = getAuthConfig();
+
   _config = {
-    threadsAppId:       requireEnv('THREADS_APP_ID'),
-    threadsAppSecret:   requireEnv('THREADS_APP_SECRET'),
-    threadsUserId:      requireEnv('THREADS_USER_ID'),
-    threadsAccessToken: process.env['THREADS_ACCESS_TOKEN'],
-    threadsRedirectUri: optionalEnv('THREADS_REDIRECT_URI', 'https://localhost/callback'),
+    ...authConfig,
 
     openrouterApiKey:  requireEnv('OPENROUTER_API_KEY'),
     openrouterModel:   optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
@@ -68,7 +94,6 @@ export function getConfig(): Config {
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     dryRun: parseBool(optionalEnv('DRY_RUN', 'false')),
-    dbPath: optionalEnv('DB_PATH', 'data/state.db'),
   };
 
   if (_config.searchQueries.length === 0) {
@@ -82,9 +107,18 @@ export function getConfig(): Config {
  * Override config (used in tests).
  */
 export function setConfig(cfg: Config): void {
+  _authConfig = {
+    threadsAppId: cfg.threadsAppId,
+    threadsAppSecret: cfg.threadsAppSecret,
+    threadsUserId: cfg.threadsUserId,
+    threadsAccessToken: cfg.threadsAccessToken,
+    threadsRedirectUri: cfg.threadsRedirectUri,
+    dbPath: cfg.dbPath,
+  };
   _config = cfg;
 }
 
 export function clearConfig(): void {
+  _authConfig = undefined;
   _config = undefined;
 }

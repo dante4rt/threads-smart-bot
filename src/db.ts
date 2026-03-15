@@ -19,6 +19,7 @@ export interface Token {
   access_token: string;
   refreshed_at: string;
   expires_at: string;
+  user_id: string | null;
 }
 
 export interface Run {
@@ -67,7 +68,8 @@ function migrate(db: Database.Database): void {
       id           INTEGER PRIMARY KEY,
       access_token TEXT NOT NULL,
       refreshed_at TEXT NOT NULL,
-      expires_at   TEXT NOT NULL
+      expires_at   TEXT NOT NULL,
+      user_id      TEXT
     );
 
     CREATE TABLE IF NOT EXISTS runs (
@@ -78,6 +80,25 @@ function migrate(db: Database.Database): void {
       completed_at  TEXT
     );
   `);
+
+  ensureColumn(db, 'tokens', 'user_id', 'TEXT');
+}
+
+function ensureColumn(
+  db: Database.Database,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string,
+): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all() as Array<{ name: string }>;
+
+  if (columns.some((column) => column.name === columnName)) {
+    return;
+  }
+
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
 }
 
 // ── Token helpers ────────────────────────────────────────────────────────────
@@ -122,15 +143,34 @@ export function saveToken(
   accessToken: string,
   expiresAt: Date,
   encryptionSecret: string,
+  userId?: string,
 ): void {
+  const existing = db
+    .prepare('SELECT user_id FROM tokens WHERE id = 1')
+    .get() as { user_id: string | null } | undefined;
+  const persistedUserId = userId !== undefined ? String(userId) : existing?.user_id ?? null;
+
   db.prepare(`
-    INSERT INTO tokens (id, access_token, refreshed_at, expires_at)
-    VALUES (1, ?, ?, ?)
+    INSERT INTO tokens (id, access_token, refreshed_at, expires_at, user_id)
+    VALUES (1, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       access_token = excluded.access_token,
       refreshed_at = excluded.refreshed_at,
-      expires_at   = excluded.expires_at
-  `).run(encryptToken(accessToken, encryptionSecret), new Date().toISOString(), expiresAt.toISOString());
+      expires_at   = excluded.expires_at,
+      user_id      = excluded.user_id
+  `).run(
+    encryptToken(accessToken, encryptionSecret),
+    new Date().toISOString(),
+    expiresAt.toISOString(),
+    persistedUserId,
+  );
+}
+
+export function updateTokenUserId(
+  db: Database.Database,
+  userId: string,
+): void {
+  db.prepare('UPDATE tokens SET user_id = ? WHERE id = 1').run(String(userId));
 }
 
 export function loadToken(db: Database.Database, encryptionSecret: string): Token | undefined {

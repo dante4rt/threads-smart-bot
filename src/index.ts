@@ -3,12 +3,12 @@
 import { createInterface } from 'readline';
 import { randomBytes } from 'crypto';
 import cron from 'node-cron';
-import { getConfig } from './config.js';
-import { getDb } from './db.js';
+import { getAuthConfig, getConfig } from './config.js';
+import { getDb, savePost } from './db.js';
 import { ThreadsClient } from './threads-api.js';
 import { runPipeline } from './pipeline.js';
 import { logger } from './logger.js';
-import { parseTime, toCronExpr } from './utils.js';
+import { parseTime, toCronExpr, truncate } from './utils.js';
 import { RunLockError } from './errors.js';
 
 // Load .env if present (dev convenience — production uses actual env vars)
@@ -34,6 +34,9 @@ const [, , command, ...args] = process.argv;
 
 if (command === 'auth') {
   await runAuth();
+} else if (command === 'post-test') {
+  const dryRun = args.includes('--dry');
+  await runDirectPost(args, dryRun);
 } else if (command === 'run') {
   const dryRun = args.includes('--dry');
   await runOnce(dryRun);
@@ -45,7 +48,7 @@ if (command === 'auth') {
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 async function runAuth(): Promise<void> {
-  const config = getConfig();
+  const config = getAuthConfig();
   const db = getDb(config.dbPath);
   const client = new ThreadsClient(config, db);
 
@@ -81,11 +84,15 @@ async function runAuth(): Promise<void> {
 
   logger.info('Exchanging code for token…');
   const shortLived = await client.exchangeCode(code);
-  const longLived = await client.getLongLivedToken(shortLived);
+  const longLived = await client.getLongLivedToken(shortLived.access_token, shortLived.user_id);
 
   console.log('\n✓ Authentication successful!');
+  console.log(`  Threads user ID: ${shortLived.user_id}`);
   console.log(`  Token stored in SQLite (${config.dbPath})`);
   console.log(`  Expires in ~${Math.round(longLived.expires_in / 86400)} days`);
+  if (!config.threadsUserId) {
+    console.log('  THREADS_USER_ID was auto-discovered and stored with the token');
+  }
   console.log('\nYou can now start the bot with: npm start\n');
 }
 
@@ -105,6 +112,49 @@ async function runOnce(dryRun: boolean): Promise<void> {
     console.error(`\n✗ Pipeline failed: ${result.error}`);
     process.exit(1);
   }
+}
+
+async function runDirectPost(args: string[], dryRun: boolean): Promise<void> {
+  const config = getAuthConfig();
+  const db = getDb(config.dbPath);
+  const client = new ThreadsClient(config, db);
+
+  await client.maybeRefreshToken();
+
+  const defaultText = `Test post from threads-smart-bot • ${new Date().toISOString()}`;
+  const providedText = getArgValue(args, '--text');
+  const rawText = providedText ?? await promptWithDefault('Post text', defaultText);
+  const safeText = truncate(rawText.trim() || defaultText, 500);
+
+  if (dryRun) {
+    savePost(db, {
+      source_query: 'manual_test',
+      source_post_ids: null,
+      generated_text: safeText,
+      threads_post_id: null,
+      published_at: null,
+    });
+
+    console.log('\n✓ Direct post dry run completed');
+    console.log(`  Text: ${safeText}`);
+    return;
+  }
+
+  const containerId = await client.createMediaContainer(safeText);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const postId = await client.publishMediaContainer(containerId);
+
+  savePost(db, {
+    source_query: 'manual_test',
+    source_post_ids: null,
+    generated_text: safeText,
+    threads_post_id: postId,
+    published_at: new Date().toISOString(),
+  });
+
+  console.log('\n✓ Direct test post published');
+  console.log(`  Post ID: ${postId}`);
+  console.log(`  Text: ${safeText}`);
 }
 
 async function startScheduler(): Promise<void> {
@@ -160,4 +210,20 @@ async function startScheduler(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   logger.info(`Bot running — ${scheduledTasks.length} schedule(s) active. Press Ctrl+C to stop.`);
+}
+
+function getArgValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  return args[index + 1];
+}
+
+async function promptWithDefault(question: string, defaultValue: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(`${question} [${defaultValue}]: `, (answer) => {
+      rl.close();
+      resolve(answer.trim() || defaultValue);
+    });
+  });
 }
