@@ -55,7 +55,19 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/Bahasa Indonesia/i);
   });
 
-  it('system prompt enforces 500 char limit', () => {
-    expect(SYSTEM_PROMPT).toContain('500');
+  it('system prompt enforces a safer sub-500 target', () => {
+    expect(SYSTEM_PROMPT).toContain('480');
+    expect(SYSTEM_PROMPT).toContain('280');
+  });
+
+  it('system prompt includes profile curiosity and shareability goals', () => {
+    expect(SYSTEM_PROMPT).toMatch(/profile curiosity/i);
+    expect(SYSTEM_PROMPT).toMatch(/share/i);
+  });
+
+  it('system prompt includes negative-signal guardrails', () => {
+    expect(SYSTEM_PROMPT).toMatch(/engagement bait/i);
+    expect(SYSTEM_PROMPT).toMatch(/misinformation/i);
+    expect(SYSTEM_PROMPT).toMatch(/spam/i);
   });
 });
