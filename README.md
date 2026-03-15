@@ -102,6 +102,7 @@ Copy `.env.example` and fill in:
 | `THREADS_ACCESS_TOKEN` | First run only | —                            | Bypassed after `auth`; SQLite takes over       |
 | `OPENROUTER_MODEL`     | No             | `anthropic/claude-opus-4-6`  | Any OpenRouter-supported model                 |
 | `SEARCH_QUERIES`       | No             | `viral,tech,AI,trending`     | Comma-separated Threads keyword queries        |
+| `MIN_SOURCE_POSTS`     | No             | `10`                         | Minimum unique crawled posts required before crafting |
 | `POST_TIMES`           | No             | `09:00,17:00`                | Comma-separated 24h times                      |
 | `TIMEZONE`             | No             | `Asia/Jakarta`               | IANA timezone name                             |
 | `UNSPLASH_ACCESS_KEY`  | No             | —                            | If set, attaches a relevant image to each post |
@@ -137,6 +138,7 @@ Dry-run crawls and crafts but **does not call the Threads publish API**.
 - Generated text is still logged to stdout.
 - A post record is still stored in SQLite with `threads_post_id = NULL`, so you keep a local audit trail.
 - Recent-post prompt context only uses published rows, so dry runs do not affect duplicate avoidance.
+- The bot now skips crafting entirely if it cannot gather at least `MIN_SOURCE_POSTS` unique source posts.
 
 Enable per-run:
 

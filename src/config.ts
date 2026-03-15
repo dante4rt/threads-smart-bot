@@ -16,6 +16,14 @@ function parseBool(val: string): boolean {
   return val.toLowerCase() === 'true' || val === '1';
 }
 
+function parsePositiveInt(val: string, key: string): number {
+  const parsed = Number.parseInt(val, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new ConfigError(`${key} must be a positive integer`);
+  }
+  return parsed;
+}
+
 export interface Config {
   threadsAppId: string;
   threadsAppSecret: string;
@@ -28,6 +36,7 @@ export interface Config {
   openrouterModel: string;
 
   searchQueries: string[];
+  minSourcePosts: number;
   postTimes: string[]; // e.g. ['09:00', '17:00']
   timezone: string;
 
@@ -84,6 +93,8 @@ export function getConfig(): Config {
       .split(',')
       .map((q) => q.trim())
       .filter(Boolean),
+
+    minSourcePosts: parsePositiveInt(optionalEnv('MIN_SOURCE_POSTS', '10'), 'MIN_SOURCE_POSTS'),
 
     postTimes: optionalEnv('POST_TIMES', '09:00,17:00')
       .split(',')
