@@ -1,7 +1,8 @@
 {
   "name": "threads-smart-bot",
   "version": "0.1.0",
-  "description": "CLI bot that crawls Threads, crafts Bahasa Indonesia posts via OpenRouter, and publishes them twice daily",
+  "description": "Threads bot that crawls trending posts, generates original Bahasa Indonesia content with OpenRouter, and publishes on demand or on a schedule",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"

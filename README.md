@@ -1,6 +1,6 @@
 # threads-smart-bot
 
-CLI bot for Threads: crawl trending posts, generate one original Bahasa Indonesia post with OpenRouter, then publish and log it to SQLite.
+Threads bot for crawling trending posts, generating original Bahasa Indonesia content with OpenRouter, and publishing on demand or on a schedule.
 
 Pipeline: `keyword search -> prompt -> optional image -> publish -> SQLite`
 
@@ -150,3 +150,7 @@ npm run build
 npm run typecheck
 npm test
 ```
+
+## License
+
+Licensed under the MIT License. See [LICENSE](/Users/dantezy/Downloads/Hacktiv8/AFTER-GRAD/TRY/Random/threads-smart-bot/LICENSE).
