@@ -2,12 +2,15 @@
 
 import { AuthError, RateLimitError, TransientError } from './errors.js';
 import { logger } from './logger.js';
-import type { Config } from './config.js';
+import type { AuthConfig } from './config.js';
 import type { Database } from 'better-sqlite3';
-import { loadToken, saveToken } from './db.js';
+import { loadToken, saveToken, updateTokenUserId } from './db.js';
 
 const BASE_URL = 'https://graph.threads.net/v1.0';
 const AUTH_BASE = 'https://threads.net/oauth';
+const OAUTH_API_BASE = 'https://graph.threads.net/oauth';
+const TOKEN_BASE = 'https://graph.threads.net';
+const USER_ID_PATTERN = /^\d+$/;
 
 export interface ThreadsPost {
   id: string;
@@ -24,16 +27,23 @@ export interface MediaContainerResult {
   id: string;
 }
 
-export interface TokenResponse {
+export interface ShortLivedTokenResponse {
   access_token: string;
-  token_type: string;
+  user_id: string;
+  token_type?: string;
   expires_in?: number;
 }
 
 export interface LongLivedTokenResponse {
   access_token: string;
-  token_type: string;
+  token_type?: string;
   expires_in: number;
+}
+
+export interface ThreadsProfile {
+  id: string;
+  username?: string;
+  name?: string;
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -55,7 +65,8 @@ async function apiFetch<T>(
     throw new TransientError(`Threads API server error ${res.status}`, res.status);
   }
   if (!res.ok) {
-    throw new Error(`Threads API error ${res.status}`);
+    const errorBody = await res.text();
+    throw new Error(errorBody ? `Threads API error ${res.status}: ${errorBody}` : `Threads API error ${res.status}`);
   }
 
   return res.json() as Promise<T>;
@@ -65,7 +76,7 @@ async function apiFetch<T>(
 
 export class ThreadsClient {
   constructor(
-    private readonly config: Config,
+    private readonly config: AuthConfig,
     private readonly db: Database,
   ) {}
 
@@ -75,6 +86,24 @@ export class ThreadsClient {
     if (token) return token.access_token;
     if (this.config.threadsAccessToken) return this.config.threadsAccessToken;
     throw new AuthError('No access token found — run `auth` first');
+  }
+
+  private async resolveThreadsUserId(): Promise<string> {
+    if (this.config.threadsUserId && USER_ID_PATTERN.test(this.config.threadsUserId)) {
+      return this.config.threadsUserId;
+    }
+
+    const token = loadToken(this.db, this.config.threadsAppSecret);
+    if (token?.user_id && USER_ID_PATTERN.test(token.user_id)) {
+      return token.user_id;
+    }
+
+    const profile = await this.getCurrentUserProfile();
+    if (token) {
+      updateTokenUserId(this.db, profile.id);
+      logger.info('Repaired stored Threads user ID', { userId: profile.id });
+    }
+    return profile.id;
   }
 
   private async withAuthRetry<T>(request: () => Promise<T>): Promise<T> {
@@ -106,7 +135,7 @@ export class ThreadsClient {
   }
 
   /** Exchange authorization code → short-lived token. */
-  async exchangeCode(code: string): Promise<string> {
+  async exchangeCode(code: string): Promise<ShortLivedTokenResponse> {
     const body = new URLSearchParams({
       client_id: this.config.threadsAppId,
       client_secret: this.config.threadsAppSecret,
@@ -115,32 +144,40 @@ export class ThreadsClient {
       code,
     });
 
-    const result = await apiFetch<TokenResponse>(`${AUTH_BASE}/access_token`, {
+    const result = await apiFetch<Partial<ShortLivedTokenResponse> & Pick<ShortLivedTokenResponse, 'access_token'>>(`${OAUTH_API_BASE}/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
 
-    logger.info('Exchanged code for short-lived token');
-    return result.access_token;
+    const userId = String(result.user_id ?? (await this.getCurrentUserProfile(result.access_token)).id);
+
+    logger.info('Exchanged code for short-lived token', { userId });
+    return {
+      access_token: result.access_token,
+      user_id: userId,
+      token_type: result.token_type,
+      expires_in: result.expires_in,
+    };
   }
 
   /** Exchange short-lived token → long-lived token (60 days). */
-  async getLongLivedToken(shortLivedToken: string): Promise<LongLivedTokenResponse> {
-    const body = new URLSearchParams({
+  async getLongLivedToken(
+    shortLivedToken: string,
+    userId?: string,
+  ): Promise<LongLivedTokenResponse> {
+    const params = new URLSearchParams({
       grant_type: 'th_exchange_token',
       client_secret: this.config.threadsAppSecret,
       access_token: shortLivedToken,
     });
 
-    const result = await apiFetch<LongLivedTokenResponse>(`${BASE_URL}/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
+    const result = await apiFetch<LongLivedTokenResponse>(`${TOKEN_BASE}/access_token?${params}`, {
+      method: 'GET',
     });
 
     const expiresAt = new Date(Date.now() + result.expires_in * 1000);
-    saveToken(this.db, result.access_token, expiresAt, this.config.threadsAppSecret);
+    saveToken(this.db, result.access_token, expiresAt, this.config.threadsAppSecret, userId);
     logger.info('Long-lived token obtained', { expiresAt: expiresAt.toISOString() });
     return result;
   }
@@ -148,20 +185,30 @@ export class ThreadsClient {
   /** Refresh long-lived token before expiry. */
   async refreshToken(): Promise<void> {
     const currentToken = this.getAccessToken();
-    const body = new URLSearchParams({
+    const params = new URLSearchParams({
       grant_type: 'th_refresh_token',
       access_token: currentToken,
     });
 
-    const result = await apiFetch<LongLivedTokenResponse>(`${BASE_URL}/refresh_access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
+    const result = await apiFetch<LongLivedTokenResponse>(`${TOKEN_BASE}/refresh_access_token?${params}`, {
+      method: 'GET',
     });
 
     const expiresAt = new Date(Date.now() + result.expires_in * 1000);
     saveToken(this.db, result.access_token, expiresAt, this.config.threadsAppSecret);
     logger.info('Token refreshed', { expiresAt: expiresAt.toISOString() });
+  }
+
+  async getCurrentUserProfile(accessToken = this.getAccessToken()): Promise<ThreadsProfile> {
+    const params = new URLSearchParams({
+      fields: 'id,username,name',
+    });
+
+    return apiFetch<ThreadsProfile>(`${BASE_URL}/me?${params}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
   }
 
   /** Check if the stored token is nearing expiry (within 10 days) and refresh. */
@@ -212,6 +259,7 @@ export class ThreadsClient {
     text: string,
     imageUrl?: string,
   ): Promise<string> {
+    const threadsUserId = await this.resolveThreadsUserId();
     const params = new URLSearchParams({
       text,
     });
@@ -224,7 +272,7 @@ export class ThreadsClient {
     }
 
     const result = await this.withAuthRetry<MediaContainerResult>(() =>
-      apiFetch<MediaContainerResult>(`${BASE_URL}/${this.config.threadsUserId}/threads`, {
+      apiFetch<MediaContainerResult>(`${BASE_URL}/${threadsUserId}/threads`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -240,12 +288,13 @@ export class ThreadsClient {
 
   /** Step 2: Publish a media container. Returns published post ID. */
   async publishMediaContainer(containerId: string): Promise<string> {
+    const threadsUserId = await this.resolveThreadsUserId();
     const params = new URLSearchParams({
       creation_id: containerId,
     });
 
     const result = await this.withAuthRetry<MediaContainerResult>(() =>
-      apiFetch<MediaContainerResult>(`${BASE_URL}/${this.config.threadsUserId}/threads_publish`, {
+      apiFetch<MediaContainerResult>(`${BASE_URL}/${threadsUserId}/threads_publish`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

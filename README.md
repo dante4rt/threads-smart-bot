@@ -35,12 +35,15 @@ npm run build
 npm run auth
 ```
 
+Only `THREADS_APP_ID`, `THREADS_APP_SECRET`, and `THREADS_REDIRECT_URI` are needed for this step. `OPENROUTER_API_KEY` is only required when you actually run the content pipeline.
+
 1. Bot prints an OAuth URL — open it in your browser.
 2. Approve the app permissions on Threads.
 3. Copy the full redirect URL from your browser and paste it into the CLI.
-4. Bot exchanges the code for a short-lived token, then immediately upgrades to a long-lived token (~60 days) and stores it in `data/state.db`.
+4. Bot exchanges the code for a short-lived token, captures your Threads `user_id`, then immediately upgrades to a long-lived token (~60 days) and stores both in `data/state.db`.
 
 After this, `THREADS_ACCESS_TOKEN` in `.env` is no longer read — SQLite is the token store.
+If `THREADS_USER_ID` was omitted, the bot will reuse the stored `user_id` automatically on later runs.
 
 > [!NOTE]
 > `THREADS_REDIRECT_URI` must match the redirect URI registered in your Meta app exactly. Defaults to `https://localhost/callback`.
@@ -57,6 +60,7 @@ After this, `THREADS_ACCESS_TOKEN` in `.env` is no longer read — SQLite is the
 | Command            | Behaviour                                                   |
 | ------------------ | ----------------------------------------------------------- |
 | `npm start`        | Scheduler mode — runs pipeline at each time in `POST_TIMES` |
+| `npm run post:test` | Publish one manual test post immediately                    |
 | `npm run run:once` | Run pipeline once and exit                                  |
 | `npm run run:dry`  | Crawl + craft, log generated text, **skip publish**         |
 
@@ -65,8 +69,21 @@ Dev equivalents (no build required, uses `tsx`):
 ```bash
 npm run dev           # scheduler
 npm run dev:auth      # auth flow
+npm run dev:post:test # direct publish smoke test
 npm run dev:run       # run once
 npm run dev:run:dry   # dry run
+```
+
+For immediate testing without waiting for cron:
+
+```bash
+npm run dev:post:test -- --text "Hello from my Threads bot"
+```
+
+Dry run variant:
+
+```bash
+npm run dev:post:test -- --dry --text "Hello from my Threads bot"
 ```
 
 ---
@@ -79,7 +96,7 @@ Copy `.env.example` and fill in:
 | ---------------------- | -------------- | ---------------------------- | ---------------------------------------------- |
 | `THREADS_APP_ID`       | Yes            | —                            | Meta app ID                                    |
 | `THREADS_APP_SECRET`   | Yes            | —                            | Meta app secret                                |
-| `THREADS_USER_ID`      | Yes            | —                            | Your Threads user ID                           |
+| `THREADS_USER_ID`      | No             | —                            | Optional override; auto-discovered during `auth` |
 | `THREADS_REDIRECT_URI` | No             | `https://localhost/callback` | Must match Meta app config                     |
 | `OPENROUTER_API_KEY`   | Yes            | —                            | OpenRouter API key                             |
 | `THREADS_ACCESS_TOKEN` | First run only | —                            | Bypassed after `auth`; SQLite takes over       |

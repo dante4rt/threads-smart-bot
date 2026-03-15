@@ -13,10 +13,12 @@
     "test:watch": "vitest",
     "start": "node dist/index.js",
     "auth": "node dist/index.js auth",
+    "post:test": "node dist/index.js post-test",
     "run:once": "node dist/index.js run",
     "run:dry": "node dist/index.js run --dry",
     "dev": "tsx src/index.ts",
     "dev:auth": "tsx src/index.ts auth",
+    "dev:post:test": "tsx src/index.ts post-test",
     "dev:run": "tsx src/index.ts run",
     "dev:run:dry": "tsx src/index.ts run --dry"
   },

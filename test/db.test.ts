@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { saveToken, loadToken, savePost, getRecentPosts, startRun, completeRun, countRecentFailures } from '../src/db.js';
+import { saveToken, loadToken, savePost, getRecentPosts, startRun, completeRun, countRecentFailures, updateTokenUserId } from '../src/db.js';
 
 const ENCRYPTION_SECRET = 'threads-app-secret-for-tests';
 
@@ -22,7 +22,8 @@ function createTestDb(): Database.Database {
       id INTEGER PRIMARY KEY,
       access_token TEXT NOT NULL,
       refreshed_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL
+      expires_at TEXT NOT NULL,
+      user_id TEXT
     );
     CREATE TABLE IF NOT EXISTS runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,18 +49,20 @@ afterEach(() => {
 describe('token helpers', () => {
   it('saves and loads a token', () => {
     const expiresAt = new Date('2025-01-01T00:00:00Z');
-    saveToken(db, 'test-token-123', expiresAt, ENCRYPTION_SECRET);
+    saveToken(db, 'test-token-123', expiresAt, ENCRYPTION_SECRET, 'thread-user-1');
     const token = loadToken(db, ENCRYPTION_SECRET);
     expect(token).toBeDefined();
     expect(token!.access_token).toBe('test-token-123');
     expect(token!.expires_at).toBe('2025-01-01T00:00:00.000Z');
+    expect(token!.user_id).toBe('thread-user-1');
   });
 
   it('overwrites existing token', () => {
-    saveToken(db, 'old-token', new Date('2025-01-01T00:00:00Z'), ENCRYPTION_SECRET);
+    saveToken(db, 'old-token', new Date('2025-01-01T00:00:00Z'), ENCRYPTION_SECRET, 'thread-user-1');
     saveToken(db, 'new-token', new Date('2025-06-01T00:00:00Z'), ENCRYPTION_SECRET);
     const token = loadToken(db, ENCRYPTION_SECRET);
     expect(token!.access_token).toBe('new-token');
+    expect(token!.user_id).toBe('thread-user-1');
   });
 
   it('returns undefined when no token', () => {
@@ -71,6 +74,14 @@ describe('token helpers', () => {
     const row = db.prepare('SELECT access_token FROM tokens WHERE id = 1').get() as { access_token: string };
     expect(row.access_token).not.toBe('secret-token');
     expect(row.access_token.startsWith('enc:v1:')).toBe(true);
+  });
+
+  it('updates only the stored user id', () => {
+    saveToken(db, 'secret-token', new Date('2025-01-01T00:00:00Z'), ENCRYPTION_SECRET, '123');
+    updateTokenUserId(db, '456');
+    const token = loadToken(db, ENCRYPTION_SECRET);
+    expect(token!.access_token).toBe('secret-token');
+    expect(token!.user_id).toBe('456');
   });
 });
 
