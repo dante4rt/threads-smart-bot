@@ -103,6 +103,8 @@ Copy `.env.example` and fill in:
 | `OPENROUTER_MODEL`     | No             | `anthropic/claude-opus-4-6`  | Any OpenRouter-supported model                 |
 | `SEARCH_QUERIES`       | No             | `viral,tech,AI,trending`     | Comma-separated Threads keyword queries        |
 | `MIN_SOURCE_POSTS`     | No             | `10`                         | Minimum unique crawled posts required before crafting |
+| `MIN_SOURCE_QUERIES`   | No             | `3`                          | Minimum distinct queries that must contribute usable source posts |
+| `MAX_SOURCE_POSTS_PER_QUERY` | No       | `4`                          | Caps how many posts from one query can feed the prompt |
 | `POST_TIMES`           | No             | `09:00,17:00`                | Comma-separated 24h times                      |
 | `TIMEZONE`             | No             | `Asia/Jakarta`               | IANA timezone name                             |
 | `UNSPLASH_ACCESS_KEY`  | No             | —                            | If set, attaches a relevant image to each post |
@@ -139,6 +141,7 @@ Dry-run crawls and crafts but **does not call the Threads publish API**.
 - A post record is still stored in SQLite with `threads_post_id = NULL`, so you keep a local audit trail.
 - Recent-post prompt context only uses published rows, so dry runs do not affect duplicate avoidance.
 - The bot now skips crafting entirely if it cannot gather at least `MIN_SOURCE_POSTS` unique source posts.
+- The bot also requires `MIN_SOURCE_QUERIES` distinct contributing queries, and it caps prompt influence with `MAX_SOURCE_POSTS_PER_QUERY`.
 
 Enable per-run:
 

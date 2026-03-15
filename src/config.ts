@@ -37,6 +37,8 @@ export interface Config {
 
   searchQueries: string[];
   minSourcePosts: number;
+  minSourceQueries: number;
+  maxSourcePostsPerQuery: number;
   postTimes: string[]; // e.g. ['09:00', '17:00']
   timezone: string;
 
@@ -95,6 +97,11 @@ export function getConfig(): Config {
       .filter(Boolean),
 
     minSourcePosts: parsePositiveInt(optionalEnv('MIN_SOURCE_POSTS', '10'), 'MIN_SOURCE_POSTS'),
+    minSourceQueries: parsePositiveInt(optionalEnv('MIN_SOURCE_QUERIES', '3'), 'MIN_SOURCE_QUERIES'),
+    maxSourcePostsPerQuery: parsePositiveInt(
+      optionalEnv('MAX_SOURCE_POSTS_PER_QUERY', '4'),
+      'MAX_SOURCE_POSTS_PER_QUERY',
+    ),
 
     postTimes: optionalEnv('POST_TIMES', '09:00,17:00')
       .split(',')

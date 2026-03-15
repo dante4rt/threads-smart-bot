@@ -12,6 +12,8 @@ const ENV_KEYS = [
   'OPENROUTER_MODEL',
   'SEARCH_QUERIES',
   'MIN_SOURCE_POSTS',
+  'MIN_SOURCE_QUERIES',
+  'MAX_SOURCE_POSTS_PER_QUERY',
   'POST_TIMES',
   'TIMEZONE',
   'UNSPLASH_ACCESS_KEY',
@@ -69,16 +71,22 @@ describe('getConfig', () => {
     expect(config.openrouterApiKey).toBe('or-key');
     expect(config.searchQueries).toEqual(['viral', 'tech', 'AI', 'trending']);
     expect(config.minSourcePosts).toBe(10);
+    expect(config.minSourceQueries).toBe(3);
+    expect(config.maxSourcePostsPerQuery).toBe(4);
   });
 
-  it('parses MIN_SOURCE_POSTS when provided', () => {
+  it('parses crawl thresholds when provided', () => {
     process.env.THREADS_APP_ID = 'app-id';
     process.env.THREADS_APP_SECRET = 'app-secret';
     process.env.OPENROUTER_API_KEY = 'or-key';
     process.env.MIN_SOURCE_POSTS = '12';
+    process.env.MIN_SOURCE_QUERIES = '4';
+    process.env.MAX_SOURCE_POSTS_PER_QUERY = '2';
 
     const config = getConfig();
 
     expect(config.minSourcePosts).toBe(12);
+    expect(config.minSourceQueries).toBe(4);
+    expect(config.maxSourcePostsPerQuery).toBe(2);
   });
 });

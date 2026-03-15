@@ -46,6 +46,12 @@ export interface PipelineResult {
   error?: string;
 }
 
+export interface QueryCrawlResult {
+  query: string;
+  fetchedPosts: number;
+  uniqueAddedPosts: ThreadsPost[];
+}
+
 export function buildCrawlQueryPool(searchQueries: string[]): string[] {
   const uniqueQueries = new Set<string>();
   const crawlQueries: string[] = [];
@@ -64,30 +70,85 @@ export function buildCrawlQueryPool(searchQueries: string[]): string[] {
 export async function collectSourcePosts(
   searchQueries: string[],
   minSourcePosts: number,
+  minSourceQueries: number,
   searchFn: (query: string, limit: number) => Promise<ThreadsPost[]>,
-): Promise<{ posts: ThreadsPost[]; usedQueries: string[] }> {
+): Promise<{
+  posts: ThreadsPost[];
+  usedQueries: string[];
+  successfulQueries: string[];
+  queryResults: QueryCrawlResult[];
+}> {
   const crawlQueries = buildCrawlQueryPool(searchQueries);
   const usedQueries: string[] = [];
+  const successfulQueries: string[] = [];
+  const queryResults: QueryCrawlResult[] = [];
   let allPosts: ThreadsPost[] = [];
 
   for (const query of crawlQueries) {
-    if (allPosts.length >= minSourcePosts) {
+    if (allPosts.length >= minSourcePosts && successfulQueries.length >= minSourceQueries) {
       break;
     }
 
     const posts = await searchFn(query, POSTS_PER_QUERY);
     usedQueries.push(query);
+    const existingIds = new Set(allPosts.map((post) => post.id));
+    const uniqueAddedPosts = posts.filter((post) => !existingIds.has(post.id));
     allPosts = dedupeBy(allPosts.concat(posts), 'id');
+    if (uniqueAddedPosts.length > 0) {
+      successfulQueries.push(query);
+    }
+
+    queryResults.push({
+      query,
+      fetchedPosts: posts.length,
+      uniqueAddedPosts,
+    });
 
     logger.info('Crawl query complete', {
       query,
       fetchedPosts: posts.length,
+      uniqueAddedPosts: uniqueAddedPosts.length,
       uniquePosts: allPosts.length,
       minSourcePosts,
+      successfulQueries: successfulQueries.length,
+      minSourceQueries,
     });
   }
 
-  return { posts: allPosts, usedQueries };
+  return { posts: allPosts, usedQueries, successfulQueries, queryResults };
+}
+
+export function buildBalancedSourcePosts(
+  queryResults: QueryCrawlResult[],
+  maxSourcePostsPerQuery: number,
+  maxTotalPosts = 30,
+): ThreadsPost[] {
+  const perQueryQueues = queryResults
+    .map((result) => result.uniqueAddedPosts.slice(0, maxSourcePostsPerQuery))
+    .filter((posts) => posts.length > 0)
+    .map((posts) => [...posts]);
+
+  const balancedPosts: ThreadsPost[] = [];
+  while (balancedPosts.length < maxTotalPosts) {
+    let pushedInRound = false;
+
+    for (const queue of perQueryQueues) {
+      const nextPost = queue.shift();
+      if (!nextPost) continue;
+      balancedPosts.push(nextPost);
+      pushedInRound = true;
+
+      if (balancedPosts.length >= maxTotalPosts) {
+        break;
+      }
+    }
+
+    if (!pushedInRound) {
+      break;
+    }
+  }
+
+  return balancedPosts;
 }
 
 export async function fitPostToLimit(
@@ -150,23 +211,33 @@ export async function runPipeline(
     logger.info('Crawl stage', {
       configuredQueries: config.searchQueries,
       minSourcePosts: config.minSourcePosts,
+      minSourceQueries: config.minSourceQueries,
+      maxSourcePostsPerQuery: config.maxSourcePostsPerQuery,
     });
 
-    const { posts: allPosts, usedQueries } = await collectSourcePosts(
+    const { posts: allPosts, usedQueries, successfulQueries, queryResults } = await collectSourcePosts(
       config.searchQueries,
       config.minSourcePosts,
+      config.minSourceQueries,
       (query, limit) => withRetry(() => threadsClient.keywordSearch(query, limit)),
     );
 
-    logger.info('Crawl complete', { totalPosts: allPosts.length, usedQueries });
+    logger.info('Crawl complete', {
+      totalPosts: allPosts.length,
+      usedQueries,
+      successfulQueries,
+    });
 
-    if (allPosts.length < config.minSourcePosts) {
+    if (allPosts.length < config.minSourcePosts || successfulQueries.length < config.minSourceQueries) {
       const message =
-        `Insufficient source posts: found ${allPosts.length}, require at least ${config.minSourcePosts}. ` +
-        'Broaden SEARCH_QUERIES or lower MIN_SOURCE_POSTS.';
+        `Insufficient source coverage: found ${allPosts.length}/${config.minSourcePosts} posts ` +
+        `across ${successfulQueries.length}/${config.minSourceQueries} successful queries. ` +
+        'Broaden SEARCH_QUERIES or lower MIN_SOURCE_POSTS / MIN_SOURCE_QUERIES.';
       logger.warn('Skipping craft stage due to thin crawl', {
         totalPosts: allPosts.length,
         minSourcePosts: config.minSourcePosts,
+        successfulQueries: successfulQueries.length,
+        minSourceQueries: config.minSourceQueries,
         usedQueries,
       });
       completeRun(db, runId, 'failed', message);
@@ -175,9 +246,18 @@ export async function runPipeline(
 
     // ── Stage 2: Craft ────────────────────────────────────────────────────
     const recentPosts = getRecentPosts(db, 5);
-    const [systemPrompt, userMessage] = buildMessages(allPosts, recentPosts, usedQueries);
+    const promptSourcePosts = buildBalancedSourcePosts(
+      queryResults,
+      config.maxSourcePostsPerQuery,
+    );
+    const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries);
 
-    logger.info('Craft stage', { sourcePosts: allPosts.length, recentPosts: recentPosts.length });
+    logger.info('Craft stage', {
+      sourcePosts: promptSourcePosts.length,
+      totalSourcePosts: allPosts.length,
+      recentPosts: recentPosts.length,
+      successfulQueries,
+    });
 
     const generatedText = await withRetry(() =>
       openRouterClient.chat(
@@ -213,7 +293,7 @@ export async function runPipeline(
     if (effectiveDryRun) {
       logger.info('DRY RUN — would publish generated post', { length: safeText.length });
       savePost(db, {
-        source_query: usedQueries.join(','),
+        source_query: successfulQueries.join(','),
         source_post_ids: JSON.stringify(allPosts.slice(0, 10).map((p) => p.id)),
         generated_text: safeText,
         threads_post_id: null, // not published
@@ -239,7 +319,7 @@ export async function runPipeline(
     );
 
     savePost(db, {
-      source_query: usedQueries.join(','),
+      source_query: successfulQueries.join(','),
       source_post_ids: JSON.stringify(allPosts.slice(0, 10).map((p) => p.id)),
       generated_text: safeText,
       threads_post_id: publishedId,

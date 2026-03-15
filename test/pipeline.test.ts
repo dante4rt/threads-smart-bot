@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildCrawlQueryPool, collectSourcePosts, fitPostToLimit } from '../src/pipeline.js';
+import {
+  buildBalancedSourcePosts,
+  buildCrawlQueryPool,
+  collectSourcePosts,
+  fitPostToLimit,
+} from '../src/pipeline.js';
 
 describe('buildCrawlQueryPool', () => {
   it('preserves configured queries and appends broader fallbacks without duplicates', () => {
@@ -31,14 +36,44 @@ describe('collectSourcePosts', () => {
       return [];
     });
 
-    const result = await collectSourcePosts(['tech'], 4, searchFn);
+    const result = await collectSourcePosts(['tech'], 4, 2, searchFn);
 
     expect(result.posts.map((post) => post.id)).toEqual(['1', '2', '3', '4']);
     expect(result.usedQueries).toEqual(['tech', 'trending']);
+    expect(result.successfulQueries).toEqual(['tech', 'trending']);
     expect(searchFn).toHaveBeenCalledTimes(2);
   });
 
-  it('returns all gathered posts when the pool still cannot reach the threshold', async () => {
+  it('continues crawling until both post and query thresholds are met', async () => {
+    const searchFn = vi.fn(async (query: string) => {
+      if (query === 'tech') {
+        return [
+          { id: '1', text: 'tech 1' },
+          { id: '2', text: 'tech 2' },
+          { id: '3', text: 'tech 3' },
+          { id: '4', text: 'tech 4' },
+        ];
+      }
+
+      if (query === 'trending') {
+        return [{ id: '5', text: 'trend 5' }];
+      }
+
+      if (query === 'viral') {
+        return [{ id: '6', text: 'viral 6' }];
+      }
+
+      return [];
+    });
+
+    const result = await collectSourcePosts(['tech'], 4, 3, searchFn);
+
+    expect(result.posts.map((post) => post.id)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(result.successfulQueries).toEqual(['tech', 'trending', 'viral']);
+    expect(searchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns all gathered posts when the pool still cannot reach the thresholds', async () => {
     const searchFn = vi.fn(async (query: string) => {
       if (query === 'tech') {
         return [{ id: '1', text: 'tech 1' }];
@@ -47,12 +82,50 @@ describe('collectSourcePosts', () => {
       return [];
     });
 
-    const result = await collectSourcePosts(['tech'], 3, searchFn);
+    const result = await collectSourcePosts(['tech'], 3, 2, searchFn);
 
     expect(result.posts.map((post) => post.id)).toEqual(['1']);
     expect(result.usedQueries).toContain('tech');
     expect(result.usedQueries).toContain('trending');
+    expect(result.successfulQueries).toEqual(['tech']);
     expect(searchFn).toHaveBeenCalled();
+  });
+});
+
+describe('buildBalancedSourcePosts', () => {
+  it('caps prompt sources per query and interleaves them', () => {
+    const result = buildBalancedSourcePosts(
+      [
+        {
+          query: 'AI',
+          fetchedPosts: 5,
+          uniqueAddedPosts: [
+            { id: 'a1', text: 'AI 1' },
+            { id: 'a2', text: 'AI 2' },
+            { id: 'a3', text: 'AI 3' },
+          ],
+        },
+        {
+          query: 'tech',
+          fetchedPosts: 2,
+          uniqueAddedPosts: [
+            { id: 't1', text: 'Tech 1' },
+            { id: 't2', text: 'Tech 2' },
+          ],
+        },
+        {
+          query: 'viral',
+          fetchedPosts: 2,
+          uniqueAddedPosts: [
+            { id: 'v1', text: 'Viral 1' },
+            { id: 'v2', text: 'Viral 2' },
+          ],
+        },
+      ],
+      2,
+    );
+
+    expect(result.map((post) => post.id)).toEqual(['a1', 't1', 'v1', 'a2', 't2', 'v2']);
   });
 });
 
