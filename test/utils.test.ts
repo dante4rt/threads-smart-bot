@@ -1,7 +1,7 @@
 // test/utils.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { pickRandom, dedupeBy, parseTime, toCronExpr, extractKeyword, truncate } from '../src/utils.js';
+import { pickRandom, dedupeBy, parseTime, toCronExpr, extractKeyword, truncate, sanitizePost } from '../src/utils.js';
 
 describe('pickRandom', () => {
   it('returns requested count when array is larger', () => {
@@ -82,9 +82,34 @@ describe('truncate', () => {
     expect(truncate('hello', 10)).toBe('hello');
   });
 
-  it('truncates and adds ellipsis', () => {
-    const result = truncate('hello world', 8);
-    expect(result).toHaveLength(8);
-    expect(result.endsWith('…')).toBe(true);
+  it('truncates at sentence boundary when possible', () => {
+    const text = 'First sentence here. Second sentence here. Third sentence is long.';
+    const result = truncate(text, 45);
+    expect(result).toBe('First sentence here. Second sentence here.');
+  });
+
+  it('truncates at word boundary when no sentence end found', () => {
+    const text = 'one two three four five six seven eight nine ten';
+    const result = truncate(text, 25);
+    expect(result).toBe('one two three four five');
+    expect(result.length).toBeLessThanOrEqual(25);
+  });
+});
+
+describe('sanitizePost', () => {
+  it('replaces em dashes with commas', () => {
+    expect(sanitizePost('hello \u2014 world')).toBe('hello , world');
+  });
+
+  it('replaces en dashes with hyphens', () => {
+    expect(sanitizePost('2024\u20132025')).toBe('2024-2025');
+  });
+
+  it('replaces unicode ellipsis with three dots', () => {
+    expect(sanitizePost('wait\u2026')).toBe('wait...');
+  });
+
+  it('cleans up double commas from em dash replacement', () => {
+    expect(sanitizePost('a,\u2014b')).toBe('a,b');
   });
 });

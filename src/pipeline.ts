@@ -15,12 +15,12 @@ import { ThreadsClient } from './threads-api.js';
 import { OpenRouterClient } from './openrouter.js';
 import { buildMessages } from './prompt.js';
 import { findImage } from './media.js';
-import { pickRandom, dedupeBy, truncate } from './utils.js';
+import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
 import type { ThreadsPost } from './threads-api.js';
 
-const MAX_POST_CHARS = 500;
-const TARGET_POST_CHARS = 460;
+const MAX_POST_CHARS = 450;
+const TARGET_POST_CHARS = 350;
 const POSTS_PER_QUERY = 25;
 const MAX_COMPRESSION_ATTEMPTS = 2;
 const FALLBACK_SEARCH_QUERIES = [
@@ -268,7 +268,7 @@ export async function runPipeline(
       ),
     );
 
-    const safeText = await fitPostToLimit(
+    const fittedText = await fitPostToLimit(
       generatedText,
       (text, targetChars) =>
         withRetry(() =>
@@ -278,8 +278,10 @@ export async function runPipeline(
                 role: 'system',
                 content:
                   `You are an expert social editor. Rewrite the Threads post below in natural Bahasa Indonesia. ` +
-                  `Keep the same core idea, preserve scannable line breaks, stay punchy, and fit under ${targetChars} characters. ` +
-                  'No hashtags, no emojis unless essential, no filler, and return ONLY the rewritten post text.',
+                  `Make it SHORTER and PUNCHIER, fit under ${targetChars} characters. ` +
+                  `Pick the single strongest angle and cut everything else. ` +
+                  `No em dashes, no hashtags, no emojis unless essential, no filler. ` +
+                  'Return ONLY the rewritten post text.',
               },
               { role: 'user', content: text },
             ],
@@ -287,6 +289,7 @@ export async function runPipeline(
           ),
         ),
     );
+    const safeText = sanitizePost(fittedText);
     logger.info('Post crafted', { length: safeText.length });
 
     // ── Stage 3: Publish ──────────────────────────────────────────────────

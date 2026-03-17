@@ -134,7 +134,7 @@ describe('fitPostToLimit', () => {
     const rewriteFn = vi.fn();
     const text = 'Singkat dan aman';
 
-    const result = await fitPostToLimit(text, rewriteFn, 500, 460, 2);
+    const result = await fitPostToLimit(text, rewriteFn, 450, 350, 2);
 
     expect(result).toBe(text);
     expect(rewriteFn).not.toHaveBeenCalled();
@@ -142,22 +142,22 @@ describe('fitPostToLimit', () => {
 
   it('rewrites oversized text before returning it', async () => {
     const rewriteFn = vi.fn(async () => 'Versi lebih pendek yang masih utuh.');
-    const text = 'x'.repeat(520);
+    const text = 'x'.repeat(460);
 
-    const result = await fitPostToLimit(text, rewriteFn, 500, 460, 2);
+    const result = await fitPostToLimit(text, rewriteFn, 450, 350, 2);
 
     expect(result).toBe('Versi lebih pendek yang masih utuh.');
     expect(rewriteFn).toHaveBeenCalledOnce();
   });
 
   it('falls back to truncation if rewrites still exceed the limit', async () => {
-    const rewriteFn = vi.fn(async () => 'y'.repeat(520));
-    const text = 'x'.repeat(520);
+    const longSentence = 'Kata yang panjang sekali. '.repeat(25);
+    const rewriteFn = vi.fn(async () => longSentence);
+    const text = 'x'.repeat(460);
 
-    const result = await fitPostToLimit(text, rewriteFn, 500, 460, 2);
+    const result = await fitPostToLimit(text, rewriteFn, 450, 350, 2);
 
-    expect(result).toHaveLength(500);
-    expect(result.endsWith('…')).toBe(true);
+    expect(result.length).toBeLessThanOrEqual(450);
     expect(rewriteFn).toHaveBeenCalledTimes(2);
   });
 });

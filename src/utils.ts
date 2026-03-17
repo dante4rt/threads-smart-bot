@@ -67,9 +67,46 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Safely truncate a string to maxLen characters, appending '…' if trimmed.
+ * Truncate at the last sentence boundary within maxLen.
+ * Falls back to last word boundary if no sentence fits.
  */
 export function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 1) + '…';
+
+  const chunk = text.slice(0, maxLen);
+
+  // Try to cut at last sentence boundary (. ! ?)
+  const sentenceEnd = Math.max(
+    chunk.lastIndexOf('. '),
+    chunk.lastIndexOf('.\n'),
+    chunk.lastIndexOf('! '),
+    chunk.lastIndexOf('!\n'),
+    chunk.lastIndexOf('? '),
+    chunk.lastIndexOf('?\n'),
+  );
+  if (sentenceEnd > maxLen * 0.5) {
+    return text.slice(0, sentenceEnd + 1).trim();
+  }
+
+  // Fall back to last word boundary
+  const lastSpace = chunk.lastIndexOf(' ');
+  if (lastSpace > maxLen * 0.5) {
+    return text.slice(0, lastSpace).trim();
+  }
+
+  return chunk.trim();
+}
+
+/**
+ * Strip AI-generated artifacts from post text.
+ * Removes em dashes, normalizes whitespace.
+ */
+export function sanitizePost(text: string): string {
+  return text
+    .replace(/\u2014/g, ',')   // em dash → comma
+    .replace(/\u2013/g, '-')   // en dash → hyphen
+    .replace(/\u2026/g, '...') // ellipsis char → three dots
+    .replace(/,\s*,/g, ',')    // double commas from replacement
+    .replace(/ {2,}/g, ' ')    // collapse multiple spaces
+    .trim();
 }
