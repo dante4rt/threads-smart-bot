@@ -79,6 +79,12 @@ function migrate(db: Database.Database): void {
       started_at    TEXT NOT NULL,
       completed_at  TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS used_images (
+      image_id  TEXT PRIMARY KEY,
+      image_url TEXT NOT NULL,
+      used_at   TEXT NOT NULL
+    );
   `);
 
   ensureColumn(db, 'tokens', 'user_id', 'TEXT');

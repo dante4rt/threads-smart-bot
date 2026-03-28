@@ -306,8 +306,8 @@ export async function runPipeline(
       return { status: 'success', generatedText: safeText };
     }
 
-    // Find optional Unsplash image
-    const imageUrl = await findImage(safeText, config.unsplashAccessKey);
+    // Find optional Unsplash image (deduped against DB)
+    const imageUrl = await findImage(safeText, config.unsplashAccessKey, db);
 
     // Two-step publish
     const containerId = await withRetry(() =>

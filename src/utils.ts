@@ -48,15 +48,29 @@ export function toCronExpr(hour: number, minute: number): string {
  * Used to query Unsplash when no explicit keyword is provided.
  */
 export function extractKeyword(text: string): string {
+  return extractKeywords(text, 1)[0] ?? 'technology';
+}
+
+/**
+ * Extract multiple meaningful keywords from text for better image search variety.
+ * Returns up to `count` unique keywords, skipping stopwords and short words.
+ */
+export function extractKeywords(text: string, count = 3): string[] {
   const stopwords = new Set([
     'yang', 'dan', 'di', 'ke', 'dari', 'adalah', 'dengan', 'untuk', 'pada',
     'ini', 'itu', 'the', 'a', 'an', 'in', 'of', 'to', 'and', 'is', 'it',
+    'gue', 'lo', 'gak', 'aja', 'juga', 'bisa', 'udah', 'emang', 'cuma',
+    'tapi', 'kalo', 'sama', 'banget', 'sih', 'kan', 'dong', 'nih', 'deh',
+    'akan', 'bukan', 'tidak', 'ada', 'buat', 'lebih', 'punya', 'jadi',
+    'kalau', 'masih', 'sudah', 'lagi', 'harus', 'mau', 'bisa', 'perlu',
   ]);
   const words = text
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter((w) => w.length > 3 && !stopwords.has(w.toLowerCase()));
-  return words[0] ?? 'technology';
+
+  const unique = [...new Set(words.map((w) => w.toLowerCase()))];
+  return unique.slice(0, count).length > 0 ? unique.slice(0, count) : ['technology'];
 }
 
 /**

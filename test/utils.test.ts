@@ -1,7 +1,7 @@
 // test/utils.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { pickRandom, dedupeBy, parseTime, toCronExpr, extractKeyword, truncate, sanitizePost } from '../src/utils.js';
+import { pickRandom, dedupeBy, parseTime, toCronExpr, extractKeyword, extractKeywords, truncate, sanitizePost } from '../src/utils.js';
 
 describe('pickRandom', () => {
   it('returns requested count when array is larger', () => {
@@ -63,7 +63,7 @@ describe('toCronExpr', () => {
 describe('extractKeyword', () => {
   it('extracts first meaningful word', () => {
     const kw = extractKeyword('Teknologi masa depan sangat menarik');
-    expect(kw).toBe('Teknologi');
+    expect(kw).toBe('teknologi');
   });
 
   it('skips stopwords', () => {
@@ -74,6 +74,30 @@ describe('extractKeyword', () => {
   it('returns fallback for empty string', () => {
     const kw = extractKeyword('');
     expect(kw).toBe('technology');
+  });
+});
+
+describe('extractKeywords', () => {
+  it('extracts multiple keywords', () => {
+    const kws = extractKeywords('Teknologi blockchain sangat membantu developer', 3);
+    expect(kws.length).toBeGreaterThanOrEqual(2);
+    expect(kws.length).toBeLessThanOrEqual(3);
+  });
+
+  it('skips Bahasa stopwords', () => {
+    const kws = extractKeywords('gue juga bisa punya teknologi bagus', 3);
+    expect(kws).not.toContain('gue');
+    expect(kws).not.toContain('juga');
+    expect(kws).not.toContain('bisa');
+  });
+
+  it('returns fallback for empty input', () => {
+    expect(extractKeywords('', 3)).toEqual(['technology']);
+  });
+
+  it('deduplicates keywords', () => {
+    const kws = extractKeywords('crypto crypto crypto blockchain blockchain', 3);
+    expect(new Set(kws).size).toBe(kws.length);
   });
 });
 
