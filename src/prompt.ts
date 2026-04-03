@@ -43,6 +43,7 @@ Your goal: craft ONE original post in Bahasa Indonesia that maximizes the strong
 - Write in natural, conversational Bahasa Indonesia. Sound like a real person with opinions, not a content machine.
 - Use casual contractions: gue, lo, gak, emang, dll. Mix formal and informal naturally.
 - Take inspiration from trending topics but produce ORIGINAL content. Never copy or paraphrase source posts.
+- Treat the runtime date context in the user message as authoritative. If you mention the current year or "tahun ini", use that exact year.
 - Prefer concrete insight, tension, contrast, or a useful mental model over vague statements
 - Avoid repeating topics or phrasing from recent posts (provided below)
 
@@ -55,7 +56,12 @@ export function buildUserMessage(
   sourcePosts: ThreadsPost[],
   recentPosts: Post[],
   queries: string[],
+  options: PromptBuildOptions = {},
 ): string {
+  const { currentDate, currentYear, timezone } = resolvePromptDateContext(
+    options.now ?? new Date(),
+    options.timezone ?? 'UTC',
+  );
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -71,7 +77,11 @@ export function buildUserMessage(
           .join('\n')
       : '(none yet)';
 
-  return `**Search queries used:** ${queries.join(', ')}
+  return `**Current date context:** ${currentDate} (${timezone})
+**Current year:** ${currentYear}
+Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
+
+**Search queries used:** ${queries.join(', ')}
 
 **Trending posts from Threads (for inspiration only — do NOT copy):**
 ${sourceSection}
@@ -91,6 +101,62 @@ export function buildMessages(
   sourcePosts: ThreadsPost[],
   recentPosts: Post[],
   queries: string[],
+  options: PromptBuildOptions = {},
 ): [string, string] {
-  return [SYSTEM_PROMPT, buildUserMessage(sourcePosts, recentPosts, queries)];
+  return [SYSTEM_PROMPT, buildUserMessage(sourcePosts, recentPosts, queries, options)];
+}
+
+interface PromptBuildOptions {
+  now?: Date;
+  timezone?: string;
+}
+
+function resolvePromptDateContext(
+  now: Date,
+  timezone: string,
+): { currentDate: string; currentYear: string; timezone: string } {
+  const formatted = formatDateParts(now, timezone);
+  if (formatted) {
+    return {
+      currentDate: `${formatted.year}-${formatted.month}-${formatted.day}`,
+      currentYear: formatted.year,
+      timezone,
+    };
+  }
+
+  const fallbackYear = now.getUTCFullYear().toString();
+  const fallbackMonth = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const fallbackDay = String(now.getUTCDate()).padStart(2, '0');
+
+  return {
+    currentDate: `${fallbackYear}-${fallbackMonth}-${fallbackDay}`,
+    currentYear: fallbackYear,
+    timezone: 'UTC',
+  };
+}
+
+function formatDateParts(
+  now: Date,
+  timezone: string,
+): { year: string; month: string; day: string } | null {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = formatter.formatToParts(now);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+
+    if (!year || !month || !day) {
+      return null;
+    }
+
+    return { year, month, day };
+  } catch {
+    return null;
+  }
 }

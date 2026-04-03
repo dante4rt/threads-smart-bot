@@ -250,7 +250,9 @@ export async function runPipeline(
       queryResults,
       config.maxSourcePostsPerQuery,
     );
-    const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries);
+    const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries, {
+      timezone: config.timezone,
+    });
 
     logger.info('Craft stage', {
       sourcePosts: promptSourcePosts.length,

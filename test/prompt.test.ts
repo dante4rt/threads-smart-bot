@@ -51,6 +51,28 @@ describe('buildMessages', () => {
     expect(user).toContain('none yet');
   });
 
+  it('includes explicit current date context for the model', () => {
+    const [, user] = buildMessages(sourcePosts, recentPosts, ['tech'], {
+      now: new Date('2026-04-03T10:00:00Z'),
+      timezone: 'Asia/Jakarta',
+    });
+
+    expect(user).toContain('Current date context');
+    expect(user).toContain('2026-04-03');
+    expect(user).toContain('**Current year:** 2026');
+    expect(user).toContain('Do not reuse an outdated year');
+  });
+
+  it('uses the configured timezone when resolving the current year', () => {
+    const [, user] = buildMessages(sourcePosts, recentPosts, ['tech'], {
+      now: new Date('2025-12-31T17:30:00Z'),
+      timezone: 'Asia/Jakarta',
+    });
+
+    expect(user).toContain('2026-01-01');
+    expect(user).toContain('**Current year:** 2026');
+  });
+
   it('system prompt enforces bahasa indonesia', () => {
     expect(SYSTEM_PROMPT).toMatch(/Bahasa Indonesia/i);
   });
