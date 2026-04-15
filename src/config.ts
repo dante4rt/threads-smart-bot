@@ -39,7 +39,7 @@ export interface Config {
   minSourcePosts: number;
   minSourceQueries: number;
   maxSourcePostsPerQuery: number;
-  postTimes: string[]; // e.g. ['09:00', '17:00']
+  postTimes: string[]; // e.g. ['12:15', '19:30']
   timezone: string;
 
   unsplashAccessKey: string | undefined;
@@ -103,7 +103,7 @@ export function getConfig(): Config {
       'MAX_SOURCE_POSTS_PER_QUERY',
     ),
 
-    postTimes: optionalEnv('POST_TIMES', '09:00,17:00')
+    postTimes: optionalEnv('POST_TIMES', '12:15,19:30')
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),

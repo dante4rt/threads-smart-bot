@@ -111,7 +111,7 @@ Meta docs:
 | `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
 | `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
 | `MAX_SOURCE_POSTS_PER_QUERY` | `4` | Caps prompt dominance from one query |
-| `POST_TIMES` | `09:00,17:00` | Scheduler times |
+| `POST_TIMES` | `12:15,19:30` | Scheduler times (lunch + prime evening scroll) |
 | `TIMEZONE` | `Asia/Jakarta` | IANA timezone |
 | `UNSPLASH_ACCESS_KEY` | empty | Optional image search |
 | `DRY_RUN` | `false` | Skip publishing globally |
