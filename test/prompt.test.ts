@@ -87,9 +87,26 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/share/i);
   });
 
-  it('system prompt includes negative-signal guardrails', () => {
-    expect(SYSTEM_PROMPT).toMatch(/engagement bait/i);
-    expect(SYSTEM_PROMPT).toMatch(/misinformation/i);
-    expect(SYSTEM_PROMPT).toMatch(/spam/i);
+  it('system prompt enforces the HCPI structure', () => {
+    expect(SYSTEM_PROMPT).toMatch(/HOOK/);
+    expect(SYSTEM_PROMPT).toMatch(/CONTEXT/);
+    expect(SYSTEM_PROMPT).toMatch(/POSITION/);
+    expect(SYSTEM_PROMPT).toMatch(/INVITATION/);
+  });
+
+  it('system prompt anchors tone to warung kopi and bales-balesan', () => {
+    expect(SYSTEM_PROMPT).toMatch(/warung kopi/i);
+    expect(SYSTEM_PROMPT).toMatch(/bales-balesan/i);
+  });
+
+  it('system prompt bans stiff Indonesian AI-tell words', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Tentunya/);
+    expect(SYSTEM_PROMPT).toMatch(/Dalam hal ini/);
+    expect(SYSTEM_PROMPT).toMatch(/Pada dasarnya/);
+  });
+
+  it('system prompt bans low-effort hook openers', () => {
+    expect(SYSTEM_PROMPT).toMatch(/A thread/);
+    expect(SYSTEM_PROMPT).toMatch(/Tips buat/);
   });
 });
