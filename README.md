@@ -75,6 +75,31 @@ What Docker does:
 > [!WARNING]
 > Do not mix `docker compose ... auth` with local `npm run ...` commands. If you auth in Docker, also run the bot in Docker.
 
+## VPS Process Manager
+
+For a long-running VPS process, do not leave the scheduler attached to an SSH shell. Use Docker Compose or a process manager that starts the bot after reboot and restarts it after external termination signals.
+
+PM2 setup:
+
+```bash
+npm install
+npm run build
+npm install -g pm2
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+```
+
+`pm2 startup` prints one system command for your server. Run that printed command once so the bot returns after reboot.
+
+Useful checks:
+
+```bash
+pm2 status threads-smart-bot
+pm2 logs threads-smart-bot
+pm2 restart threads-smart-bot
+```
+
 ## Required Permissions
 
 Your Meta app needs:
@@ -140,6 +165,7 @@ Meta docs:
 | `Threads API error 400` on publish | Bad stored user ID or invalid request | Re-run `auth`; current code also auto-repairs bad stored IDs |
 | Crawl returns too few posts | Query set is too thin | Broaden `SEARCH_QUERIES` or lower crawl thresholds |
 | Images never attach | Unsplash key missing/invalid | Set `UNSPLASH_ACCESS_KEY` or accept text-only posts |
+| `SIGTERM received, stopping scheduler` then bot stays down | Server, Docker, PM2, systemd, or another parent process asked Node to terminate; a raw `npm start` shell will not restart it | Run with Docker Compose or PM2; check `pm2 logs`, `journalctl`, or provider reboot/OOM events |
 
 </details>
 

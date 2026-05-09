@@ -8,6 +8,7 @@ import { getDb, savePost } from './db.js';
 import { ThreadsClient } from './threads-api.js';
 import { runPipeline } from './pipeline.js';
 import { logger } from './logger.js';
+import { getSignalExitCode } from './shutdown.js';
 import { parseTime, toCronExpr, truncate } from './utils.js';
 import { RunLockError } from './errors.js';
 
@@ -198,16 +199,22 @@ async function startScheduler(): Promise<void> {
   }
 
   // Graceful shutdown
-  const shutdown = (signal: string) => {
-    logger.info(`${signal} received, stopping scheduler`);
+  let isShuttingDown = false;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    const exitCode = getSignalExitCode(signal);
+
+    logger.info(`${signal} received, stopping scheduler`, { signal, exitCode });
     for (const task of scheduledTasks) task.stop();
     db.pragma('wal_checkpoint(TRUNCATE)');
     db.close();
-    process.exit(0);
+    process.exit(exitCode);
   };
 
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 
   logger.info(`Bot running — ${scheduledTasks.length} schedule(s) active. Press Ctrl+C to stop.`);
 }
