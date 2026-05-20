@@ -79,23 +79,23 @@ describe('buildMessages', () => {
 
   it('system prompt enforces compact character targets', () => {
     expect(SYSTEM_PROMPT).toContain('400');
-    expect(SYSTEM_PROMPT).toContain('200-350');
+    expect(SYSTEM_PROMPT).toContain('60-280');
   });
 
-  it('system prompt includes profile curiosity and shareability goals', () => {
-    expect(SYSTEM_PROMPT).toMatch(/profile curiosity/i);
+  it('system prompt includes shareability and reply-engagement goals', () => {
+    expect(SYSTEM_PROMPT).toMatch(/bales-balesan/i);
     expect(SYSTEM_PROMPT).toMatch(/share/i);
   });
 
-  it('system prompt enforces the HCPI structure', () => {
-    expect(SYSTEM_PROMPT).toMatch(/HOOK/);
-    expect(SYSTEM_PROMPT).toMatch(/CONTEXT/);
-    expect(SYSTEM_PROMPT).toMatch(/POSITION/);
-    expect(SYSTEM_PROMPT).toMatch(/INVITATION/);
+  it('system prompt offers flexible post shapes (not forced HCPI)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/SAR/);
+    expect(SYSTEM_PROMPT).toMatch(/AOR/);
+    expect(SYSTEM_PROMPT).toMatch(/NOQ/);
+    expect(SYSTEM_PROMPT).toMatch(/MICRO/);
   });
 
-  it('system prompt anchors tone to warung kopi and bales-balesan', () => {
-    expect(SYSTEM_PROMPT).toMatch(/warung kopi/i);
+  it('system prompt anchors tone to builder voice with bales-balesan goal', () => {
+    expect(SYSTEM_PROMPT).toMatch(/builder/i);
     expect(SYSTEM_PROMPT).toMatch(/bales-balesan/i);
   });
 
@@ -105,8 +105,28 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/Pada dasarnya/);
   });
 
+  it('system prompt bans thinkfluencer opener patterns', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Skill paling/);
+    expect(SYSTEM_PROMPT).toMatch(/Gue curiga/);
+    expect(SYSTEM_PROMPT).toMatch(/Bukan kurang/);
+  });
+
   it('system prompt bans low-effort hook openers', () => {
     expect(SYSTEM_PROMPT).toMatch(/A thread/);
     expect(SYSTEM_PROMPT).toMatch(/Tips buat/);
+  });
+
+  it('system prompt requires a concrete subject or first-person action', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Concrete subject/i);
+    expect(SYSTEM_PROMPT).toMatch(/first-person action/i);
+  });
+
+  it('system prompt bans fabricated stats', () => {
+    expect(SYSTEM_PROMPT).toMatch(/fabricated stats/i);
+  });
+
+  it('system prompt bans thinkfluencer diction', () => {
+    expect(SYSTEM_PROMPT).toMatch(/literally/);
+    expect(SYSTEM_PROMPT).toMatch(/supply konten/);
   });
 });
