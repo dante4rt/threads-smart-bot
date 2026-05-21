@@ -125,6 +125,11 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/fabricated stats/i);
   });
 
+  it('system prompt bans colon clause connectors and mandates bridge words', () => {
+    expect(SYSTEM_PROMPT).toMatch(/yaitu/);
+    expect(SYSTEM_PROMPT).toMatch(/bridge words/i);
+  });
+
   it('system prompt bans thinkfluencer diction', () => {
     expect(SYSTEM_PROMPT).toMatch(/literally/);
     expect(SYSTEM_PROMPT).toMatch(/supply konten/);

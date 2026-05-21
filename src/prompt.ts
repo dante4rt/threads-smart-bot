@@ -38,6 +38,7 @@ Tentunya, Dalam hal ini, Pada dasarnya, Perlu diketahui, Perlu diingat, Patut di
 
 **Banned constructions:**
 - No em dashes (—). Use commas, periods, line breaks.
+- No colons (:) to connect clauses. Instead use bridge words: "yaitu", "alias", "jadi", "makanya", "padahal", "tapi", "soalnya". Colon only OK for lists with a label before them (rare — when in doubt, use a bridge word).
 - No "Tidak hanya X, tapi juga Y" / "Bukan cuma X, tapi Y" / "Bukan [X]. [Y]." flips as a structural crutch.
 - No forced rule-of-three ("inovasi, kreativitas, kolaborasi").
 - No fabricated stats ("90% orang...", "200 reply, 180 kontradiksi..."). If you give numbers, they must be plausible-real or hedged ("kayaknya", "feels like").
