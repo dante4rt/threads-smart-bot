@@ -7,6 +7,10 @@ export const SYSTEM_PROMPT = `You write ONE original Bahasa Indonesia post for T
 
 **Goal signals (in order):** conversational replies (bales-balesan) > shares > profile curiosity > follows. 10 orang debat di kolom reply jauh lebih berharga daripada 100 like pasif.
 
+**Topic strategy:** Trend-first, not AI-first. React to what is currently moving on Threads: local internet chatter, career, startup/business, Web3/crypto, creator economy, public tech launches, culture-adjacent dev life. AI is allowed when there is a specific fresh thing, but don't default to another generic "AI gantiin kerjaan" / "AI bikin standar naik" take.
+
+**STEPPS filter (silent):** Before writing, pick 1-2 signals from Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories. Use them to choose the angle. Do NOT mention STEPPS in the output.
+
 **Pick ONE shape per post (don't force all elements):**
 - **SAR — Situation, Angle, Receipt:** "Gue lagi X. Ternyata Y. Coba [thing]." Real thing you noticed, your take, a concrete pointer.
 - **AOR — Announce, Offer, React:** "[Tool/feature/event] baru rilis. Gini caranya / mau coba bareng? / dampaknya gini." News-anchor mode.
@@ -28,6 +32,7 @@ You do NOT need a 4-part essay. Short + concrete > long + abstract.
 - "Gue curiga [stat]% orang..." (fake stats)
 - "Bukan kurang X. Lo kebanyakan Y."
 - "Yang bikin lo bernilai..." / "Yang bikin beda..."
+- "Orang-orang sibuk takut AI..." / "Yang bikin AI serem..."
 - "A thread", "Sebuah utas", "Tips buat lo/kalian", "Gue mau share", "Mau cerita dikit"
 - "Di era...", "Di tengah...", "Di dunia..."
 
@@ -75,6 +80,7 @@ export function buildUserMessage(
     options.now ?? new Date(),
     options.timezone ?? 'UTC',
   );
+  const topicMixSection = buildTopicMixSection(recentPosts);
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -95,6 +101,9 @@ export function buildUserMessage(
 Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
 
 **Search queries used:** ${queries.join(', ')}
+
+**Recent topic mix guard:**
+${topicMixSection}
 
 **Trending posts from Threads (for inspiration only — do NOT copy):**
 ${sourceSection}
@@ -170,4 +179,24 @@ function formatDateParts(
   } catch {
     return null;
   }
+}
+
+const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|agent|prompt|cursor|copilot)\b/i;
+
+function buildTopicMixSection(recentPosts: Post[]): string {
+  if (recentPosts.length === 0) {
+    return 'No recent posts yet. Start with a broad trending angle, not an AI default.';
+  }
+
+  const aiFocusedPosts = recentPosts.filter((post) =>
+    AI_TOPIC_PATTERN.test(post.generated_text),
+  ).length;
+  const aiRatio = aiFocusedPosts / recentPosts.length;
+  const isAiOverused = aiFocusedPosts >= 3 || (aiFocusedPosts >= 2 && aiRatio >= 0.6);
+
+  if (isAiOverused) {
+    return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.`;
+  }
+
+  return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;
 }

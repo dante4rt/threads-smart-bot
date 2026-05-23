@@ -87,6 +87,12 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/share/i);
   });
 
+  it('system prompt enforces trend-first topic strategy and silent STEPPS filtering', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Trend-first, not AI-first/i);
+    expect(SYSTEM_PROMPT).toMatch(/STEPPS filter/i);
+    expect(SYSTEM_PROMPT).toMatch(/Social Currency/i);
+  });
+
   it('system prompt offers flexible post shapes (not forced HCPI)', () => {
     expect(SYSTEM_PROMPT).toMatch(/SAR/);
     expect(SYSTEM_PROMPT).toMatch(/AOR/);
@@ -109,6 +115,7 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/Skill paling/);
     expect(SYSTEM_PROMPT).toMatch(/Gue curiga/);
     expect(SYSTEM_PROMPT).toMatch(/Bukan kurang/);
+    expect(SYSTEM_PROMPT).toMatch(/Orang-orang sibuk takut AI/);
   });
 
   it('system prompt bans low-effort hook openers', () => {
@@ -133,5 +140,39 @@ describe('buildMessages', () => {
   it('system prompt bans thinkfluencer diction', () => {
     expect(SYSTEM_PROMPT).toMatch(/literally/);
     expect(SYSTEM_PROMPT).toMatch(/supply konten/);
+  });
+
+  it('adds a recent-topic guard when AI/tooling posts are overused', () => {
+    const aiHeavyRecentPosts: Post[] = [
+      {
+        id: 1,
+        source_query: 'AI',
+        source_post_ids: null,
+        generated_text: 'AI bikin standar kerja naik lagi.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+      {
+        id: 2,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'ChatGPT dipakai buat ngerjain riset konten.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 3,
+        source_query: 'viral',
+        source_post_ids: null,
+        generated_text: 'Cursor agent makin enak buat refactor.',
+        threads_post_id: 'tp-3',
+        published_at: '2026-01-03T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, aiHeavyRecentPosts, ['trending']);
+
+    expect(user).toContain('AI is overused right now');
+    expect(user).toContain('Prefer a non-AI trend');
   });
 });

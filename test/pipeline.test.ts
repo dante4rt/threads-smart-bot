@@ -13,6 +13,14 @@ describe('buildCrawlQueryPool', () => {
     expect(queries).toEqual(expect.arrayContaining(['tech', 'AI', 'viral', 'trending', 'startup']));
     expect(new Set(queries).size).toBe(queries.length);
   });
+
+  it('defers AI-focused seeds behind broad trend queries', () => {
+    const queries = buildCrawlQueryPool(['viral', 'tech', 'AI', 'trending']);
+
+    expect(queries.indexOf('trending')).toBeLessThan(queries.indexOf('AI'));
+    expect(queries.indexOf('Indonesia')).toBeLessThan(queries.indexOf('AI'));
+    expect(queries.indexOf('bisnis')).toBeLessThan(queries.indexOf('AI'));
+  });
 });
 
 describe('collectSourcePosts', () => {

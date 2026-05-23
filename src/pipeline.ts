@@ -23,18 +23,30 @@ const MAX_POST_CHARS = 450;
 const TARGET_POST_CHARS = 350;
 const POSTS_PER_QUERY = 25;
 const MAX_COMPRESSION_ATTEMPTS = 2;
-const FALLBACK_SEARCH_QUERIES = [
+const TREND_FIRST_FALLBACK_SEARCH_QUERIES = [
   'trending',
   'viral',
-  'tech',
-  'AI',
+  'lagi rame',
+  'ramai',
+  'Indonesia',
+  'Jakarta',
   'startup',
   'bisnis',
-  'productivity',
   'career',
   'creator',
   'marketing',
+  'web3',
+  'crypto',
+  'developer',
+  'tech',
+  'productivity',
 ] as const;
+const AI_FALLBACK_SEARCH_QUERIES = [
+  'AI',
+  'ChatGPT',
+  'OpenAI',
+] as const;
+const AI_QUERY_PATTERN = /\b(ai|artificial intelligence|chatgpt|openai|claude|gemini|llm|agent)\b/i;
 
 /** Simple in-process run lock to prevent overlapping executions. */
 let runInProgress = false;
@@ -54,14 +66,43 @@ export interface QueryCrawlResult {
 
 export function buildCrawlQueryPool(searchQueries: string[]): string[] {
   const uniqueQueries = new Set<string>();
+  const uniqueDeferredAiQueries = new Set<string>();
   const crawlQueries: string[] = [];
+  const deferredAiQueries: string[] = [];
 
-  for (const query of [...pickRandom(searchQueries, searchQueries.length), ...FALLBACK_SEARCH_QUERIES]) {
+  const addQuery = (query: string, target: string[]): void => {
     const normalized = query.trim();
     const key = normalized.toLowerCase();
-    if (!normalized || uniqueQueries.has(key)) continue;
+    if (!normalized || uniqueQueries.has(key)) return;
     uniqueQueries.add(key);
-    crawlQueries.push(normalized);
+    target.push(normalized);
+  };
+
+  const deferAiQuery = (query: string): void => {
+    const normalized = query.trim();
+    const key = normalized.toLowerCase();
+    if (!normalized || uniqueQueries.has(key) || uniqueDeferredAiQueries.has(key)) return;
+    uniqueDeferredAiQueries.add(key);
+    deferredAiQueries.push(normalized);
+  };
+
+  for (const query of [
+    ...pickRandom(searchQueries, searchQueries.length),
+    ...TREND_FIRST_FALLBACK_SEARCH_QUERIES,
+  ]) {
+    const normalized = query.trim();
+    if (!normalized) continue;
+
+    if (AI_QUERY_PATTERN.test(normalized)) {
+      deferAiQuery(normalized);
+      continue;
+    }
+
+    addQuery(normalized, crawlQueries);
+  }
+
+  for (const query of [...deferredAiQueries, ...AI_FALLBACK_SEARCH_QUERIES]) {
+    addQuery(query, crawlQueries);
   }
 
   return crawlQueries;

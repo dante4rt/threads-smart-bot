@@ -132,7 +132,7 @@ Meta docs:
 | `OPENROUTER_API_KEY` | — | Required for crawl + craft pipeline |
 | `THREADS_ACCESS_TOKEN` | empty | Optional bootstrap fallback before SQLite exists |
 | `OPENROUTER_MODEL` | `anthropic/claude-opus-4-6` | OpenRouter model |
-| `SEARCH_QUERIES` | `viral,tech,AI,trending` | Seed queries for crawl |
+| `SEARCH_QUERIES` | `trending,viral,lagi rame,Indonesia,startup,bisnis,career,creator,web3,tech` | Seed queries for crawl |
 | `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
 | `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
 | `MAX_SOURCE_POSTS_PER_QUERY` | `4` | Caps prompt dominance from one query |
@@ -153,6 +153,8 @@ Meta docs:
   - at least `MIN_SOURCE_POSTS` unique posts
   - at least `MIN_SOURCE_QUERIES` contributing queries
 - Prompt inputs are balanced by `MAX_SOURCE_POSTS_PER_QUERY` so one topic does not fully dominate.
+- AI-specific query seeds are deferred behind broader trend queries, so the bot reacts to the flow first and only posts about AI when it is a specific fresh trend.
+- The prompt uses a silent STEPPS filter (Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories) plus recent-post topic checks to avoid repeating generic AI angles.
 
 ## Troubleshooting
 

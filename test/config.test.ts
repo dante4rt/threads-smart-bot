@@ -69,7 +69,18 @@ describe('getConfig', () => {
 
     expect(config.threadsUserId).toBeUndefined();
     expect(config.openrouterApiKey).toBe('or-key');
-    expect(config.searchQueries).toEqual(['viral', 'tech', 'AI', 'trending']);
+    expect(config.searchQueries).toEqual([
+      'trending',
+      'viral',
+      'lagi rame',
+      'Indonesia',
+      'startup',
+      'bisnis',
+      'career',
+      'creator',
+      'web3',
+      'tech',
+    ]);
     expect(config.minSourcePosts).toBe(10);
     expect(config.minSourceQueries).toBe(3);
     expect(config.maxSourcePostsPerQuery).toBe(4);
