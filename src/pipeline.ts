@@ -286,7 +286,7 @@ export async function runPipeline(
     }
 
     // ── Stage 2: Craft ────────────────────────────────────────────────────
-    const recentPosts = getRecentPosts(db, 5);
+    const recentPosts = getRecentPosts(db, 10);
     const promptSourcePosts = buildBalancedSourcePosts(
       queryResults,
       config.maxSourcePostsPerQuery,

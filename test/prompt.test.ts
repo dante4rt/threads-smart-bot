@@ -142,7 +142,7 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/supply konten/);
   });
 
-  it('adds a recent-topic guard when AI/tooling posts are overused', () => {
+  it('adds a recent-topic guard and hard topic-slot command when AI/tooling posts are overused', () => {
     const aiHeavyRecentPosts: Post[] = [
       {
         id: 1,
@@ -168,11 +168,56 @@ describe('buildMessages', () => {
         threads_post_id: 'tp-3',
         published_at: '2026-01-03T09:00:00Z',
       },
+      {
+        id: 4,
+        source_query: 'trending',
+        source_post_ids: null,
+        generated_text: 'OpenAI ngumumin model baru lagi.',
+        threads_post_id: 'tp-4',
+        published_at: '2026-01-04T09:00:00Z',
+      },
     ];
 
     const [, user] = buildMessages(sourcePosts, aiHeavyRecentPosts, ['trending']);
 
     expect(user).toContain('AI is overused right now');
     expect(user).toContain('Prefer a non-AI trend');
+    expect(user).toContain('TOPIC SLOT THIS ROUND');
+    expect(user).toContain('posted too much AI content lately');
+    expect(user).toContain('specific fresh launch or event');
+  });
+
+  it('does not inject topic-slot command when AI posts are below the threshold', () => {
+    const mixedRecentPosts: Post[] = [
+      {
+        id: 1,
+        source_query: 'karir',
+        source_post_ids: null,
+        generated_text: 'Gaji junior dev di Jakarta naik lumayan.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+      {
+        id: 2,
+        source_query: 'AI',
+        source_post_ids: null,
+        generated_text: 'ChatGPT dipakai buat ngerjain riset konten.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 3,
+        source_query: 'viral',
+        source_post_ids: null,
+        generated_text: 'Side project gue akhirnya dapat user pertama.',
+        threads_post_id: 'tp-3',
+        published_at: '2026-01-03T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, mixedRecentPosts, ['trending']);
+
+    expect(user).not.toContain('TOPIC SLOT THIS ROUND');
+    expect(user).not.toContain('AI is banned this round');
   });
 });

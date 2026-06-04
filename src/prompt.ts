@@ -192,10 +192,13 @@ function buildTopicMixSection(recentPosts: Post[]): string {
     AI_TOPIC_PATTERN.test(post.generated_text),
   ).length;
   const aiRatio = aiFocusedPosts / recentPosts.length;
-  const isAiOverused = aiFocusedPosts >= 3 || (aiFocusedPosts >= 2 && aiRatio >= 0.6);
+  // Trigger at 4+ of 10 OR ≥50% of any window ≥6
+  const isAiOverused = aiFocusedPosts >= 4 || (recentPosts.length >= 6 && aiRatio >= 0.5);
 
   if (isAiOverused) {
-    return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.`;
+    return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.
+
+⛔ TOPIC SLOT THIS ROUND: You have posted too much AI content lately. Pick a NON-AI topic from the source posts — career, money, creator life, local culture, side projects, UMKM, gaji, freelance, anything grounded and non-tech-tool. Only use AI as a topic if there is a specific fresh launch or event in the source posts that is clearly trending. "AI lagi rame" in general is not enough — it must be a named, specific thing.`;
   }
 
   return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;

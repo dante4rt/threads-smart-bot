@@ -91,7 +91,10 @@ export function getConfig(): Config {
     openrouterApiKey:  requireEnv('OPENROUTER_API_KEY'),
     openrouterModel:   optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
 
-    searchQueries: optionalEnv('SEARCH_QUERIES', 'trending,viral,lagi rame,Indonesia,startup,bisnis,career,creator,web3,tech')
+    searchQueries: optionalEnv(
+      'SEARCH_QUERIES',
+      'trending,viral,lagi rame,Indonesia,karir Indonesia,ngoding,side project,freelance,uang,investasi,konten creator,UMKM,anak muda Indonesia,hustle,gaji,remote work,startup,bisnis,creator,web3,tech',
+    )
       .split(',')
       .map((q) => q.trim())
       .filter(Boolean),
