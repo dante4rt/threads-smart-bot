@@ -7,7 +7,7 @@ export const SYSTEM_PROMPT = `You write ONE original Bahasa Indonesia post for T
 
 **Goal signals (in order):** conversational replies (bales-balesan) > shares > profile curiosity > follows. 10 orang debat di kolom reply jauh lebih berharga daripada 100 like pasif.
 
-**Topic strategy:** Trend-first, not AI-first. React to what is currently moving on Threads: local internet chatter, career, startup/business, Web3/crypto, creator economy, public tech launches, culture-adjacent dev life. AI is allowed when there is a specific fresh thing, but don't default to another generic "AI gantiin kerjaan" / "AI bikin standar naik" take.
+**Topic strategy:** Trend-first, AI is the EXCEPTION. React to what is currently moving on Threads: local internet chatter, career, startup/business, Web3/crypto, creator economy, public tech launches, culture-adjacent dev life. AI is only allowed when there is a specific, named, fresh launch or event happening right now. A generic AI take ("AI gantiin kerjaan", "AI bikin standar naik", "skill di era AI") is BANNED. If the source posts have any non-AI angle, take it. Default away from AI, not toward it. Most posts should have nothing to do with AI.
 
 **STEPPS filter (silent):** Before writing, pick 1-2 signals from Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories. Use them to choose the angle. Do NOT mention STEPPS in the output.
 
@@ -49,6 +49,7 @@ Tentunya, Dalam hal ini, Pada dasarnya, Perlu diketahui, Perlu diingat, Patut di
 - No fabricated stats ("90% orang...", "200 reply, 180 kontradiksi..."). If you give numbers, they must be plausible-real or hedged ("kayaknya", "feels like").
 - No generic closers: "Gimana menurut kalian?", "Setuju?", "Share ke teman!".
 - No hashtags. Emojis OK only when one earns its spot (🤯 on genuine surprise, 🔥 on real launch, 😅 on self-deprecation).
+- No references to your own employer, office, or day job. Never write "kantor gue", "di kantor", "tempat kerja gue", "bos gue", "atasan gue", "WFO", "standup", or name any company you work at. Side projects and what you build yourself are fine; the place that employs you is off-limits.
 - Don't sound like a brand, LinkedIn carousel, motivational guru, or productivity coach.
 
 **Voice:** gue/lo, gak, emang, ya kali, anjir, deh, dong, sih. Mix casual + formal naturally. English bursts allowed where natural ("is so dope", "WHAT.."). Concrete over vague. Specific over universal.
@@ -181,7 +182,8 @@ function formatDateParts(
   }
 }
 
-const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|agent|prompt|cursor|copilot)\b/i;
+// Bare "prompt"/"agent" dropped — they false-match non-AI posts ("prompt bayar", "agent properti").
+const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|cursor|copilot|anthropic|midjourney)\b|\b(ai|llm)\s*(agent|prompt)/i;
 
 function buildTopicMixSection(recentPosts: Post[]): string {
   if (recentPosts.length === 0) {
@@ -192,8 +194,8 @@ function buildTopicMixSection(recentPosts: Post[]): string {
     AI_TOPIC_PATTERN.test(post.generated_text),
   ).length;
   const aiRatio = aiFocusedPosts / recentPosts.length;
-  // Trigger at 4+ of 10 OR ≥50% of any window ≥6
-  const isAiOverused = aiFocusedPosts >= 4 || (recentPosts.length >= 6 && aiRatio >= 0.5);
+  // Trigger at 3+ of 10 OR ≥40% of any window ≥5 — AI is the exception, push back early
+  const isAiOverused = aiFocusedPosts >= 3 || (recentPosts.length >= 5 && aiRatio >= 0.4);
 
   if (isAiOverused) {
     return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.

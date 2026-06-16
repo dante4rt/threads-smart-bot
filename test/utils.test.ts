@@ -149,4 +149,21 @@ describe('sanitizePost', () => {
     expect(sanitizePost('mulai jam 10:30 pagi')).toBe('mulai jam 10:30 pagi');
     expect(sanitizePost('rasio 16:9 mantap')).toBe('rasio 16:9 mantap');
   });
+
+  it('drops sentences that reference the employer', () => {
+    expect(sanitizePost('Gue di kantor lagi mikir soal X. Ternyata jawabannya gampang.')).toBe(
+      'Ternyata jawabannya gampang.',
+    );
+    expect(sanitizePost('Kantor gue ribet banget hari ini.')).toBe('');
+    expect(sanitizePost('Bos gue minta revisi lagi. Cape.')).toBe('Cape.');
+  });
+
+  it('keeps side-project and self-build sentences', () => {
+    expect(sanitizePost('Side project gue akhirnya dapat user pertama.')).toBe(
+      'Side project gue akhirnya dapat user pertama.',
+    );
+    expect(sanitizePost('Gue lagi bikin app presensi sendiri.')).toBe(
+      'Gue lagi bikin app presensi sendiri.',
+    );
+  });
 });

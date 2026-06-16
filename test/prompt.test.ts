@@ -88,7 +88,7 @@ describe('buildMessages', () => {
   });
 
   it('system prompt enforces trend-first topic strategy and silent STEPPS filtering', () => {
-    expect(SYSTEM_PROMPT).toMatch(/Trend-first, not AI-first/i);
+    expect(SYSTEM_PROMPT).toMatch(/Trend-first, AI is the EXCEPTION/i);
     expect(SYSTEM_PROMPT).toMatch(/STEPPS filter/i);
     expect(SYSTEM_PROMPT).toMatch(/Social Currency/i);
   });
@@ -140,6 +140,15 @@ describe('buildMessages', () => {
   it('system prompt bans thinkfluencer diction', () => {
     expect(SYSTEM_PROMPT).toMatch(/literally/);
     expect(SYSTEM_PROMPT).toMatch(/supply konten/);
+  });
+
+  it('system prompt bans employer and day-job references', () => {
+    expect(SYSTEM_PROMPT).toMatch(/kantor gue/);
+    expect(SYSTEM_PROMPT).toMatch(/employer/i);
+  });
+
+  it('system prompt frames AI as the exception, not the default', () => {
+    expect(SYSTEM_PROMPT).toMatch(/AI is the EXCEPTION/);
   });
 
   it('adds a recent-topic guard and hard topic-slot command when AI/tooling posts are overused', () => {

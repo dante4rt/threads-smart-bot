@@ -101,8 +101,17 @@ export function buildCrawlQueryPool(searchQueries: string[]): string[] {
     addQuery(normalized, crawlQueries);
   }
 
-  for (const query of [...deferredAiQueries, ...AI_FALLBACK_SEARCH_QUERIES]) {
+  // AI is the exception. Only user-configured AI queries get deferred to the back of the pool.
+  // The hardcoded AI fallbacks are appended ONLY if the non-AI pool came back empty, so the
+  // crawler never manufactures AI source material the user didn't ask for.
+  for (const query of deferredAiQueries) {
     addQuery(query, crawlQueries);
+  }
+
+  if (crawlQueries.length === 0) {
+    for (const query of AI_FALLBACK_SEARCH_QUERIES) {
+      addQuery(query, crawlQueries);
+    }
   }
 
   return crawlQueries;

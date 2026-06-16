@@ -111,12 +111,28 @@ export function truncate(text: string, maxLen: number): string {
   return chunk.trim();
 }
 
+// Employer / day-job references the bot must never publish (reputation guard).
+// Matched case-insensitively against each sentence; a matching sentence is dropped whole.
+const EMPLOYER_PATTERN =
+  /kantor\s+(gue|gw|aku|saya)|di\s+kantor|tempat\s+kerja\s+(gue|gw|aku|saya)|bos\s+(gue|gw|aku|saya)|atasan\s+(gue|gw|aku|saya)|\bwfo\b/i;
+
+/**
+ * Drop any sentence that references the author's employer or day job.
+ * Splits on sentence boundaries (. ! ? newline), removes matching sentences, rejoins.
+ * A partial inline edit would leave broken fragments, so the whole sentence goes.
+ */
+export function stripEmployerSentences(text: string): string {
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
+  const kept = sentences.filter((s) => s.trim() !== '' && !EMPLOYER_PATTERN.test(s));
+  return kept.join(' ').trim();
+}
+
 /**
  * Strip AI-generated artifacts from post text.
- * Removes em dashes, clause-level colons, normalizes whitespace.
+ * Removes em dashes, clause-level colons, employer references, normalizes whitespace.
  */
 export function sanitizePost(text: string): string {
-  return text
+  return stripEmployerSentences(text)
     .replace(/\u2014/g, ',')   // em dash → comma
     .replace(/\u2013/g, '-')   // en dash → hyphen
     .replace(/\u2026/g, '...') // ellipsis char → three dots
