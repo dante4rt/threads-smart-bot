@@ -113,13 +113,14 @@ export function truncate(text: string, maxLen: number): string {
 
 /**
  * Strip AI-generated artifacts from post text.
- * Removes em dashes, normalizes whitespace.
+ * Removes em dashes, clause-level colons, normalizes whitespace.
  */
 export function sanitizePost(text: string): string {
   return text
     .replace(/\u2014/g, ',')   // em dash → comma
     .replace(/\u2013/g, '-')   // en dash → hyphen
     .replace(/\u2026/g, '...') // ellipsis char → three dots
+    .replace(/(\S):\s+(?=\D)/g, '$1, ') // "Topic: text" -> "Topic, text"; spares https:// and 10:30
     .replace(/,\s*,/g, ',')    // double commas from replacement
     .replace(/ {2,}/g, ' ')    // collapse multiple spaces
     .trim();

@@ -323,7 +323,7 @@ export async function runPipeline(
                   `You are an expert social editor. Rewrite the Threads post below in natural Bahasa Indonesia. ` +
                   `Make it SHORTER and PUNCHIER, fit under ${targetChars} characters. ` +
                   `Pick the single strongest angle and cut everything else. ` +
-                  `No em dashes, no hashtags, no emojis unless essential, no filler. ` +
+                  `No em dashes, no colons, no hashtags, no emojis unless essential, no filler. ` +
                   'Return ONLY the rewritten post text.',
               },
               { role: 'user', content: text },

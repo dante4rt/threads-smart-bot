@@ -136,4 +136,17 @@ describe('sanitizePost', () => {
   it('cleans up double commas from em dash replacement', () => {
     expect(sanitizePost('a,\u2014b')).toBe('a,b');
   });
+
+  it('replaces clause-level colons with commas', () => {
+    expect(sanitizePost('Skill mahal: belajar prompt')).toBe('Skill mahal, belajar prompt');
+  });
+
+  it('spares colons inside URLs', () => {
+    expect(sanitizePost('cek https://x.com sekarang')).toBe('cek https://x.com sekarang');
+  });
+
+  it('spares colons inside timestamps and ratios', () => {
+    expect(sanitizePost('mulai jam 10:30 pagi')).toBe('mulai jam 10:30 pagi');
+    expect(sanitizePost('rasio 16:9 mantap')).toBe('rasio 16:9 mantap');
+  });
 });
