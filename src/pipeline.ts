@@ -64,7 +64,59 @@ export interface QueryCrawlResult {
   uniqueAddedPosts: ThreadsPost[];
 }
 
-export function buildCrawlQueryPool(searchQueries: string[]): string[] {
+/** Day index (0=Sunday … 6=Saturday) for a date in the given IANA timezone. */
+export function dayOfWeekInTimezone(date: Date, timezone: string): number {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+  }).format(date);
+  const order = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const index = order.indexOf(weekday);
+  return index === -1 ? 0 : index;
+}
+
+/**
+ * Build the day's crawl pool by cyclically shifting the catalog's flattened query
+ * list by day-of-week. Each of the 7 weekdays gets a distinct leading category and
+ * crawl order whenever the flattened list has ≥7 distinct queries (a single cyclic shift by
+ * 0..6 over distinct elements is 7-distinct). Deterministic: same date+timezone
+ * always yields the same order. The result is fed through buildCrawlQueryPool so
+ * AI-deferral, dedup, and broad fallbacks still apply on top of the rotation.
+ */
+export function buildDailyQueryPool(
+  catalog: Record<string, string[]>,
+  date: Date,
+  timezone: string,
+): string[] {
+  const bucketKeys = Object.keys(catalog).sort();
+  if (bucketKeys.length === 0) return [];
+
+  const dayOfWeek = dayOfWeekInTimezone(date, timezone);
+
+  // Flatten buckets in stable sorted order, then apply ONE cyclic shift by
+  // dayOfWeek. A single cyclic shift of a list of distinct elements by 0..6 is
+  // provably 7-distinct whenever the list has ≥7 entries — so every weekday gets
+  // a different leading category and a different crawl order, independent of how
+  // many buckets exist. (A second, bucket-level rotation was removed: two day-keyed
+  // shifts can cancel for uneven bucket sizes, re-colliding weekdays.)
+  const flattened: string[] = [];
+  for (const key of bucketKeys) {
+    for (const query of catalog[key] ?? []) {
+      flattened.push(query);
+    }
+  }
+
+  if (flattened.length > 1) {
+    const shift = dayOfWeek % flattened.length;
+    flattened.push(...flattened.splice(0, shift));
+  }
+
+  // shuffle=false: preserve the day-rotated bucket order so the leading
+  // categories actually differ per weekday instead of being re-randomized away.
+  return buildCrawlQueryPool(flattened, false);
+}
+
+export function buildCrawlQueryPool(searchQueries: string[], shuffle = true): string[] {
   const uniqueQueries = new Set<string>();
   const uniqueDeferredAiQueries = new Set<string>();
   const crawlQueries: string[] = [];
@@ -86,8 +138,9 @@ export function buildCrawlQueryPool(searchQueries: string[]): string[] {
     deferredAiQueries.push(normalized);
   };
 
+  const orderedQueries = shuffle ? pickRandom(searchQueries, searchQueries.length) : searchQueries;
   for (const query of [
-    ...pickRandom(searchQueries, searchQueries.length),
+    ...orderedQueries,
     ...TREND_FIRST_FALLBACK_SEARCH_QUERIES,
   ]) {
     const normalized = query.trim();
@@ -122,13 +175,14 @@ export async function collectSourcePosts(
   minSourcePosts: number,
   minSourceQueries: number,
   searchFn: (query: string, limit: number) => Promise<ThreadsPost[]>,
+  /** Pre-built crawl pool (e.g. day-rotated). When omitted, derived from searchQueries. */
+  crawlQueries: string[] = buildCrawlQueryPool(searchQueries),
 ): Promise<{
   posts: ThreadsPost[];
   usedQueries: string[];
   successfulQueries: string[];
   queryResults: QueryCrawlResult[];
 }> {
-  const crawlQueries = buildCrawlQueryPool(searchQueries);
   const usedQueries: string[] = [];
   const successfulQueries: string[] = [];
   const queryResults: QueryCrawlResult[] = [];
@@ -260,16 +314,20 @@ export async function runPipeline(
     // ── Stage 1: Crawl ────────────────────────────────────────────────────
     logger.info('Crawl stage', {
       configuredQueries: config.searchQueries,
+      categoryBuckets: Object.keys(config.categoryQueries),
+      dayOfWeek: dayOfWeekInTimezone(new Date(), config.timezone),
       minSourcePosts: config.minSourcePosts,
       minSourceQueries: config.minSourceQueries,
       maxSourcePostsPerQuery: config.maxSourcePostsPerQuery,
     });
 
+    const dailyQueryPool = buildDailyQueryPool(config.categoryQueries, new Date(), config.timezone);
     const { posts: allPosts, usedQueries, successfulQueries, queryResults } = await collectSourcePosts(
       config.searchQueries,
       config.minSourcePosts,
       config.minSourceQueries,
       (query, limit) => withRetry(() => threadsClient.keywordSearch(query, limit)),
+      dailyQueryPool,
     );
 
     logger.info('Crawl complete', {

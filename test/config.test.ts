@@ -11,6 +11,7 @@ const ENV_KEYS = [
   'OPENROUTER_API_KEY',
   'OPENROUTER_MODEL',
   'SEARCH_QUERIES',
+  'CATEGORY_QUERIES',
   'MIN_SOURCE_POSTS',
   'MIN_SOURCE_QUERIES',
   'MAX_SOURCE_POSTS_PER_QUERY',
@@ -95,6 +96,46 @@ describe('getConfig', () => {
     expect(config.minSourcePosts).toBe(10);
     expect(config.minSourceQueries).toBe(3);
     expect(config.maxSourcePostsPerQuery).toBe(4);
+  });
+
+  it('derives category buckets from SEARCH_QUERIES when CATEGORY_QUERIES is unset', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.SEARCH_QUERIES = 'a,b,c,d,e,f,g,h';
+
+    const config = getConfig();
+    const buckets = Object.values(config.categoryQueries);
+
+    // 8 queries spread across the default 7 buckets, round-robin, no query lost.
+    expect(Object.keys(config.categoryQueries).length).toBe(7);
+    expect(buckets.flat().sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  });
+
+  it('uses CATEGORY_QUERIES verbatim when provided', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.CATEGORY_QUERIES = JSON.stringify({
+      tech: ['ngoding', 'developer'],
+      bisnis: ['startup'],
+    });
+
+    const config = getConfig();
+
+    expect(config.categoryQueries).toEqual({
+      tech: ['ngoding', 'developer'],
+      bisnis: ['startup'],
+    });
+  });
+
+  it('rejects malformed CATEGORY_QUERIES JSON', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.CATEGORY_QUERIES = '{not json}';
+
+    expect(() => getConfig()).toThrow(/CATEGORY_QUERIES must be valid JSON/);
   });
 
   it('parses crawl thresholds when provided', () => {

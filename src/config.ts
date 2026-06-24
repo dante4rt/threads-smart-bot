@@ -24,6 +24,70 @@ function parsePositiveInt(val: string, key: string): number {
   return parsed;
 }
 
+// 7 = one lead bucket per weekday, so day-of-week rotation gives a distinct
+// leading theme every day when enough queries exist.
+const DEFAULT_BUCKET_COUNT = 7;
+
+/**
+ * Split a flat query list into N themed buckets by round-robin. Deterministic:
+ * same input always yields the same buckets. Used as the fallback catalog when
+ * CATEGORY_QUERIES is not provided, so flat SEARCH_QUERIES deployments still rotate.
+ */
+function deriveCategoryQueries(
+  searchQueries: string[],
+  bucketCount = DEFAULT_BUCKET_COUNT,
+): Record<string, string[]> {
+  const count = Math.min(bucketCount, searchQueries.length) || 1;
+  const buckets: Record<string, string[]> = {};
+  // Zero-pad the index so lexical key sorting (used during rotation) stays
+  // numerically correct past 9 buckets (group-02 < group-10).
+  const pad = String(count).length;
+  for (let i = 0; i < count; i++) {
+    buckets[`group-${String(i + 1).padStart(pad, '0')}`] = [];
+  }
+  const keys = Object.keys(buckets);
+  searchQueries.forEach((query, index) => {
+    const key = keys[index % count];
+    if (key) buckets[key]!.push(query);
+  });
+  return buckets;
+}
+
+/**
+ * Parse the optional CATEGORY_QUERIES env. Expected JSON shape:
+ * {"tech":["ngoding","developer"],"bisnis":["startup","UMKM"]}.
+ * Throws ConfigError on malformed JSON or wrong shape so config fails fast at startup.
+ */
+function parseCategoryQueries(raw: string): Record<string, string[]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConfigError(
+      'CATEGORY_QUERIES must be valid JSON, e.g. {"tech":["ngoding"],"bisnis":["startup"]}',
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new ConfigError('CATEGORY_QUERIES must be a JSON object mapping bucket names to query arrays');
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const [bucket, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!Array.isArray(value)) {
+      throw new ConfigError(`CATEGORY_QUERIES bucket "${bucket}" must be an array of strings`);
+    }
+    const queries = value
+      .map((q) => (typeof q === 'string' ? q.trim() : ''))
+      .filter(Boolean);
+    if (queries.length > 0) result[bucket] = queries;
+  }
+
+  if (Object.keys(result).length === 0) {
+    throw new ConfigError('CATEGORY_QUERIES must contain at least one bucket with at least one query');
+  }
+  return result;
+}
+
 export interface Config {
   threadsAppId: string;
   threadsAppSecret: string;
@@ -36,6 +100,12 @@ export interface Config {
   openrouterModel: string;
 
   searchQueries: string[];
+  /**
+   * Themed query buckets used for day-of-week rotation. When CATEGORY_QUERIES is
+   * unset, this is derived from searchQueries so existing flat-config deployments
+   * keep working and gain rotation for free.
+   */
+  categoryQueries: Record<string, string[]>;
   minSourcePosts: number;
   minSourceQueries: number;
   maxSourcePostsPerQuery: number;
@@ -99,6 +169,8 @@ export function getConfig(): Config {
       .map((q) => q.trim())
       .filter(Boolean),
 
+    categoryQueries: {}, // populated after searchQueries validation below
+
     minSourcePosts: parsePositiveInt(optionalEnv('MIN_SOURCE_POSTS', '10'), 'MIN_SOURCE_POSTS'),
     minSourceQueries: parsePositiveInt(optionalEnv('MIN_SOURCE_QUERIES', '3'), 'MIN_SOURCE_QUERIES'),
     maxSourcePostsPerQuery: parsePositiveInt(
@@ -120,6 +192,11 @@ export function getConfig(): Config {
   if (_config.searchQueries.length === 0) {
     throw new ConfigError('SEARCH_QUERIES must contain at least one term');
   }
+
+  const rawCategoryQueries = process.env['CATEGORY_QUERIES'];
+  _config.categoryQueries = rawCategoryQueries
+    ? parseCategoryQueries(rawCategoryQueries)
+    : deriveCategoryQueries(_config.searchQueries);
 
   return _config;
 }

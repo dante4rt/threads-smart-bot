@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildBalancedSourcePosts,
   buildCrawlQueryPool,
+  buildDailyQueryPool,
   collectSourcePosts,
+  dayOfWeekInTimezone,
   fitPostToLimit,
 } from '../src/pipeline.js';
 
@@ -20,6 +22,94 @@ describe('buildCrawlQueryPool', () => {
     expect(queries.indexOf('trending')).toBeLessThan(queries.indexOf('AI'));
     expect(queries.indexOf('Indonesia')).toBeLessThan(queries.indexOf('AI'));
     expect(queries.indexOf('bisnis')).toBeLessThan(queries.indexOf('AI'));
+  });
+});
+
+describe('buildDailyQueryPool', () => {
+  // 4 themed buckets, no AI words so nothing gets deferred / dropped.
+  const catalog = {
+    tech: ['ngoding', 'developer'],
+    bisnis: ['startup', 'UMKM'],
+    kreator: ['creator', 'konten'],
+    keuangan: ['investasi', 'gaji'],
+  };
+  const tz = 'Asia/Jakarta';
+  // Known weekdays in Asia/Jakarta (UTC+7, no DST): Jun 22 2026 = Monday, Jun 23 = Tuesday.
+  const monday = new Date('2026-06-22T05:00:00Z');
+  const tuesday = new Date('2026-06-23T05:00:00Z');
+
+  it('produces a non-empty pool drawn only from the catalog', () => {
+    const allCatalogQueries = new Set(Object.values(catalog).flat());
+    const pool = buildDailyQueryPool(catalog, monday, tz);
+
+    expect(pool.length).toBeGreaterThan(0);
+    const fromCatalog = pool.filter((q) => allCatalogQueries.has(q));
+    // Every catalog query should survive (broad fallbacks are appended on top).
+    expect(fromCatalog).toEqual(expect.arrayContaining([...allCatalogQueries]));
+  });
+
+  it('is deterministic for the same date + timezone', () => {
+    // Both timestamps fall on the same Jakarta calendar day (12:00 and 21:00 WIB).
+    const a = buildDailyQueryPool(catalog, monday, tz);
+    const b = buildDailyQueryPool(catalog, new Date('2026-06-22T14:00:00Z'), tz);
+
+    expect(a).toEqual(b);
+  });
+
+  it('rotates the leading categories for different weekdays', () => {
+    const mon = buildDailyQueryPool(catalog, monday, tz);
+    const tue = buildDailyQueryPool(catalog, tuesday, tz);
+
+    // Same query set, different ordering — the leading query differs by day.
+    expect(new Set(mon)).toEqual(new Set(tue));
+    expect(mon[0]).not.toBe(tue[0]);
+  });
+
+  const sevenWeekdayPools = (cat: Record<string, string[]>): string[] => {
+    const baseSunday = new Date('2026-06-21T05:00:00Z'); // Sunday in WIB
+    const pools: string[] = [];
+    for (let day = 0; day < 7; day++) {
+      const date = new Date(baseSunday.getTime() + day * 24 * 60 * 60 * 1000);
+      pools.push(buildDailyQueryPool(cat, date, tz).join('|'));
+    }
+    return pools;
+  };
+
+  it('produces 7 distinct orderings across the week even when buckets < 7', () => {
+    // 4 buckets / 8 queries. A single flat-list cyclic shift must make all 7
+    // weekdays distinct regardless of bucket count.
+    expect(new Set(sevenWeekdayPools(catalog)).size).toBe(7);
+  });
+
+  it('stays 7-distinct on the uneven-bucket shape the default derive path produces', () => {
+    // 8 flat queries round-robined into 7 buckets gives sizes [2,1,1,1,1,1,1].
+    // The previous two-rotation scheme collapsed Mon≡Fri / Tue≡Sat on this shape.
+    const unevenDerived = {
+      'group-1': ['a', 'h'],
+      'group-2': ['b'],
+      'group-3': ['c'],
+      'group-4': ['d'],
+      'group-5': ['e'],
+      'group-6': ['f'],
+      'group-7': ['g'],
+    };
+    expect(new Set(sevenWeekdayPools(unevenDerived)).size).toBe(7);
+  });
+
+  it('returns an empty pool when the catalog is empty', () => {
+    expect(buildDailyQueryPool({}, monday, tz)).toEqual([]);
+  });
+});
+
+describe('dayOfWeekInTimezone', () => {
+  it('maps a known date to the correct weekday index in the timezone', () => {
+    // 2026-06-22 is a Monday in Asia/Jakarta.
+    expect(dayOfWeekInTimezone(new Date('2026-06-22T05:00:00Z'), 'Asia/Jakarta')).toBe(1);
+  });
+
+  it('respects timezone boundaries (late UTC Sunday is already Monday in Jakarta)', () => {
+    // 2026-06-21T20:00Z = 2026-06-22T03:00 in Jakarta → Monday (1), not Sunday (0).
+    expect(dayOfWeekInTimezone(new Date('2026-06-21T20:00:00Z'), 'Asia/Jakarta')).toBe(1);
   });
 });
 
