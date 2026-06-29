@@ -132,6 +132,12 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/fabricated stats/i);
   });
 
+  it('system prompt bans inventing locations and FnB settings', () => {
+    expect(SYSTEM_PROMPT).toMatch(/NEVER name a city/i);
+    expect(SYSTEM_PROMPT).toMatch(/FnB/);
+    expect(SYSTEM_PROMPT).toMatch(/warung kopi/i);
+  });
+
   it('system prompt bans colon clause connectors and mandates bridge words', () => {
     expect(SYSTEM_PROMPT).toMatch(/yaitu/);
     expect(SYSTEM_PROMPT).toMatch(/bridge words/i);
