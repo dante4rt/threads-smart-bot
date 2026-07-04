@@ -14,6 +14,7 @@ import {
 import { ThreadsClient } from './threads-api.js';
 import { OpenRouterClient } from './openrouter.js';
 import { buildMessages } from './prompt.js';
+import { generateGroundedPost } from './fact-check.js';
 import { findImage } from './media.js';
 import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
@@ -369,14 +370,29 @@ export async function runPipeline(
       successfulQueries,
     });
 
-    const generatedText = await withRetry(() =>
-      openRouterClient.chat(
-        [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-      ),
+    const grounded = await generateGroundedPost(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      promptSourcePosts,
+      (messages, maxTokens, temperature) =>
+        withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
     );
+
+    if (grounded.text === null) {
+      const message =
+        `Skipping publish: generated drafts failed fact grounding after ${grounded.attempts} attempts. ` +
+        `Unsupported claims: ${grounded.violations.join('; ')}`;
+      logger.warn('Craft stage rejected by grounding gate', {
+        attempts: grounded.attempts,
+        violations: grounded.violations,
+      });
+      completeRun(db, runId, 'failed', message);
+      return { status: 'skipped', error: message };
+    }
+
+    const generatedText = grounded.text;
 
     const fittedText = await fitPostToLimit(
       generatedText,

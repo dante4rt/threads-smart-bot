@@ -132,6 +132,13 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/fabricated stats/i);
   });
 
+  it('system prompt bans invented brand actions, retail sightings, and prices', () => {
+    expect(SYSTEM_PROMPT).toMatch(/brand or company actions/i);
+    expect(SYSTEM_PROMPT).toMatch(/Indomaret/);
+    expect(SYSTEM_PROMPT).toMatch(/personal sighting/i);
+    expect(SYSTEM_PROMPT).toMatch(/NEVER state a price/i);
+  });
+
   it('system prompt bans inventing locations and FnB settings', () => {
     expect(SYSTEM_PROMPT).toMatch(/NEVER name a city/i);
     expect(SYSTEM_PROMPT).toMatch(/FnB/);

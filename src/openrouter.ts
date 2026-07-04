@@ -30,7 +30,7 @@ export interface ChatResponse {
 export class OpenRouterClient {
   constructor(private readonly config: Config) {}
 
-  async chat(messages: ChatMessage[], maxTokens = 600): Promise<string> {
+  async chat(messages: ChatMessage[], maxTokens = 600, temperature = 0.85): Promise<string> {
     let res: Response;
     try {
       res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
@@ -45,7 +45,7 @@ export class OpenRouterClient {
           model: this.config.openrouterModel,
           messages,
           max_tokens: maxTokens,
-          temperature: 0.85,
+          temperature,
         }),
       });
     } catch (err) {
