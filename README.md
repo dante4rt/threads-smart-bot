@@ -2,7 +2,31 @@
 
 Threads bot for crawling trending posts, generating original Bahasa Indonesia content with OpenRouter, and publishing on demand or on a schedule.
 
-Pipeline: `keyword search -> prompt -> optional image -> publish -> SQLite`
+Pipeline: `keyword search -> prompt -> grounding gate -> optional image -> publish -> SQLite`
+
+## Architecture
+
+```
+┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌───────────┐
+│  Crawl      │───>│  Craft       │───>│  Fact-Check  │───>│  Publish  │
+│  Threads    │    │  OpenRouter  │    │  Grounding   │    │  Threads  │
+│  keyword    │    │  Bahasa      │    │  gate (3x)   │    │  API      │
+│  search     │    │  Indonesia   │    │              │    │           │
+└─────────────┘    └──────────────┘    └──────────────┘    └───────────┘
+       │                  │                                       │
+       v                  v                                       v
+  ┌─────────┐       ┌──────────┐                            ┌──────────┐
+  │Category │       │ Author   │                            │ SQLite   │
+  │Rotation │       │ Context  │                            │ state.db │
+  │(7-day)  │       │ (optional)│                            │          │
+  └─────────┘       └──────────┘                            └──────────┘
+```
+
+**Key features:**
+- **Category rotation** — `CATEGORY_QUERIES` splits search terms into themed buckets, rotating a different lead category each day of the week
+- **AI topic guard** — monitors recent posts; if AI/tooling content exceeds thresholds, forces a non-AI topic
+- **Grounding gate** — drafts are fact-checked against source posts before publishing; unsupported claims trigger rewrites (up to 3 attempts)
+- **Author context** — `AUTHOR_CONTEXT` injects a short bio/projects blurb into the prompt so the LLM can reference your work naturally
 
 ## Quick Start
 
@@ -132,7 +156,9 @@ Meta docs:
 | `OPENROUTER_API_KEY` | — | Required for crawl + craft pipeline |
 | `THREADS_ACCESS_TOKEN` | empty | Optional bootstrap fallback before SQLite exists |
 | `OPENROUTER_MODEL` | `anthropic/claude-opus-4-6` | OpenRouter model |
-| `SEARCH_QUERIES` | `trending,viral,lagi rame,Indonesia,startup,bisnis,career,creator,web3,tech` | Seed queries for crawl |
+| `SEARCH_QUERIES` | (long default — see `.env.example`) | Comma-separated seed queries for crawl |
+| `CATEGORY_QUERIES` | auto-derived from `SEARCH_QUERIES` | JSON map of themed query buckets for day-of-week rotation. Example: `{"tech":["ngoding","SaaS"],"fintech":["crypto"]}` |
+| `AUTHOR_CONTEXT` | empty | Short bio or project list injected into every prompt. Lets the LLM reference your work naturally when topics align. |
 | `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
 | `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
 | `MAX_SOURCE_POSTS_PER_QUERY` | `4` | Caps prompt dominance from one query |
@@ -155,6 +181,9 @@ Meta docs:
 - Prompt inputs are balanced by `MAX_SOURCE_POSTS_PER_QUERY` so one topic does not fully dominate.
 - AI-specific query seeds are deferred behind broader trend queries, so the bot reacts to the flow first and only posts about AI when it is a specific fresh trend.
 - The prompt uses a silent STEPPS filter (Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories) plus recent-post topic checks to avoid repeating generic AI angles.
+- **Category rotation:** when `CATEGORY_QUERIES` is set, the bot picks a different lead bucket each day (Monday = bucket 1, Tuesday = bucket 2, etc.) so the feed stays varied. Without it, `SEARCH_QUERIES` is split into 7 round-robin buckets automatically.
+- **Grounding gate:** every draft is checked against the source posts that inspired it. Claims that aren't directly supported by the source material trigger a rewrite, up to 3 attempts. If all attempts fail, the post is skipped.
+- **Author context:** set `AUTHOR_CONTEXT` to a short description of your projects or expertise. The LLM sees it in every prompt and can weave references naturally when food/tech/career topics align — no hard selling.
 
 ## Troubleshooting
 

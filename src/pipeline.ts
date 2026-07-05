@@ -361,6 +361,7 @@ export async function runPipeline(
     );
     const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries, {
       timezone: config.timezone,
+      authorContext: config.authorContext || undefined,
     });
 
     logger.info('Craft stage', {

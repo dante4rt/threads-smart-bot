@@ -112,7 +112,7 @@ export function buildUserMessage(
 **Current year:** ${currentYear}
 Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
 
-**Search queries used:** ${queries.join(', ')}
+**Search queries used:** ${queries.join(', ')}${options.authorContext ? `\n\n**About me (mention my projects naturally when the topic fits, no hard selling):**\n${options.authorContext}` : ''}
 
 **Recent topic mix guard:**
 ${topicMixSection}
@@ -141,6 +141,7 @@ export function buildMessages(
 interface PromptBuildOptions {
   now?: Date;
   timezone?: string;
+  authorContext?: string;
 }
 
 function resolvePromptDateContext(

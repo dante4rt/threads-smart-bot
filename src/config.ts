@@ -113,6 +113,7 @@ export interface Config {
   timezone: string;
 
   unsplashAccessKey: string | undefined;
+  authorContext: string;
   dryRun: boolean;
 }
 
@@ -163,7 +164,7 @@ export function getConfig(): Config {
 
     searchQueries: optionalEnv(
       'SEARCH_QUERIES',
-      'trending,viral,lagi rame,Indonesia,karir Indonesia,ngoding,side project,freelance,uang,investasi,konten creator,UMKM,anak muda Indonesia,hustle,gaji,remote work,startup,bisnis,creator,web3,tech',
+      'trending,viral,lagi rame,Indonesia,startup,bisnis,career,creator,web3,tech,DeFi,hackathon,solidity,gaming blockchain,freelance developer,remote work,gaji developer,open source,AI tools,crypto trading,kuliner Jakarta,makanan viral,food recommendation',
     )
       .split(',')
       .map((q) => q.trim())
@@ -186,6 +187,7 @@ export function getConfig(): Config {
     timezone: optionalEnv('TIMEZONE', 'Asia/Jakarta'),
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
+    authorContext: optionalEnv('AUTHOR_CONTEXT', ''),
     dryRun: parseBool(optionalEnv('DRY_RUN', 'false')),
   };
 
