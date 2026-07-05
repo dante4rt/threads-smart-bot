@@ -23,7 +23,7 @@ export interface GroundedPostResult {
   violations: string[];
 }
 
-const MAX_GROUNDING_ATTEMPTS = 2;
+const MAX_GROUNDING_ATTEMPTS = 3;
 
 export const FACT_CHECK_SYSTEM_PROMPT = `You are a strict fact-checking gate for a social media bot. You receive SOURCE POSTS and one DRAFT post in Bahasa Indonesia.
 
@@ -168,8 +168,18 @@ export function buildRegenerationFeedback(violations: string[]): string {
 }
 
 /**
+ * Feedback for the FINAL attempt: constraints under which a draft cannot contain
+ * an ungroundable claim, so the slot still gets a post instead of being skipped.
+ */
+export function buildSafeModeFeedback(violations: string[]): string {
+  const list = violations.map((v) => `- ${v}`).join('\n');
+  return `Your draft was REJECTED again by the fact check:\n${list}\n\nFINAL ATTEMPT — write in SAFE MODE. Hard constraints:\n- ZERO numbers of any kind. No prices, percentages, rates, fees, counts, or dates.\n- ZERO claims about what any company, product, or service did, offers, charges, launched, or changed.\n- No comparisons between named services ("X is cheaper than Y").\n- Frame everything as your own feeling, question, or observation about the general topic ("gue ngerasa", "gue penasaran", "kayaknya", "kok makin...").\n- A named brand may appear ONLY as the subject of an open question or opinion that asserts no fact about it.\nAll voice and format rules from the system prompt still apply.`;
+}
+
+/**
  * Generate a post and gate it through the grounding check.
- * On rejection, feeds the violations back and regenerates once.
+ * On rejection, feeds the violations back and regenerates; the last retry runs in
+ * safe mode (no numbers, no brand claims) so a skipped slot is the rare exception.
  * Returns text: null when all attempts fail — better no post than a fabricated one.
  */
 export async function generateGroundedPost(
@@ -182,7 +192,8 @@ export async function generateGroundedPost(
   let lastViolations: string[] = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const draft = await chatFn(conversation);
+    // Snapshot per call — callers must not observe later mutations of the conversation.
+    const draft = await chatFn([...conversation]);
     const verdict = await verifyPostGrounding(draft, sourcePosts, chatFn);
 
     if (verdict.grounded) {
@@ -197,8 +208,14 @@ export async function generateGroundedPost(
       violations: verdict.violations,
     });
 
+    const nextAttemptIsLast = attempt === maxAttempts - 1;
     conversation.push({ role: 'assistant', content: draft });
-    conversation.push({ role: 'user', content: buildRegenerationFeedback(verdict.violations) });
+    conversation.push({
+      role: 'user',
+      content: nextAttemptIsLast
+        ? buildSafeModeFeedback(verdict.violations)
+        : buildRegenerationFeedback(verdict.violations),
+    });
   }
 
   return { text: null, attempts: maxAttempts, violations: lastViolations };

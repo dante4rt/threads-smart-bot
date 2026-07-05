@@ -143,6 +143,30 @@ describe('generateGroundedPost', () => {
     expect(regenMessages[3]?.content).toContain('REJECTED');
   });
 
+  it('escalates the final retry to safe mode and returns its draft when it passes', async () => {
+    const chatFn = vi
+      .fn()
+      .mockResolvedValueOnce('Hoax draft 1')
+      .mockResolvedValueOnce('{"grounded": false, "violations": ["claim A"]}')
+      .mockResolvedValueOnce('Hoax draft 2')
+      .mockResolvedValueOnce('{"grounded": false, "violations": ["claim B"]}')
+      .mockResolvedValueOnce('Gue penasaran, kopi minimarket beneran ngegeser outlet gak sih?')
+      .mockResolvedValueOnce('{"grounded": true, "violations": []}');
+
+    const result = await generateGroundedPost(messages, sourcePosts, chatFn);
+
+    expect(result.text).toBe('Gue penasaran, kopi minimarket beneran ngegeser outlet gak sih?');
+    expect(result.attempts).toBe(3);
+
+    // First retry gets normal feedback, final retry gets safe-mode constraints.
+    const firstFeedback = chatFn.mock.calls[2]![0].at(-1);
+    const finalFeedback = chatFn.mock.calls[4]![0].at(-1);
+    expect(firstFeedback.content).not.toContain('SAFE MODE');
+    expect(finalFeedback.content).toContain('SAFE MODE');
+    expect(finalFeedback.content).toContain('ZERO numbers');
+    expect(finalFeedback.content).toContain('claim B');
+  });
+
   it('returns null text with violations when every attempt fails', async () => {
     const chatFn = vi
       .fn()
@@ -151,7 +175,7 @@ describe('generateGroundedPost', () => {
       .mockResolvedValueOnce('Hoax draft 2')
       .mockResolvedValueOnce('{"grounded": false, "violations": ["claim B"]}');
 
-    const result = await generateGroundedPost(messages, sourcePosts, chatFn);
+    const result = await generateGroundedPost(messages, sourcePosts, chatFn, 2);
 
     expect(result.text).toBeNull();
     expect(result.attempts).toBe(2);
