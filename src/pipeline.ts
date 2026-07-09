@@ -77,12 +77,21 @@ export function dayOfWeekInTimezone(date: Date, timezone: string): number {
 }
 
 /**
- * Build the day's crawl pool by cyclically shifting the catalog's flattened query
- * list by day-of-week. Each of the 7 weekdays gets a distinct leading category and
- * crawl order whenever the flattened list has ≥7 distinct queries (a single cyclic shift by
- * 0..6 over distinct elements is 7-distinct). Deterministic: same date+timezone
- * always yields the same order. The result is fed through buildCrawlQueryPool so
- * AI-deferral, dedup, and broad fallbacks still apply on top of the rotation.
+ * Build the day's crawl pool by cyclically shifting the catalog's BUCKET ORDER
+ * (not the flattened query list) by day-of-week, then flattening. Each of the 7
+ * weekdays gets a distinct leading bucket whenever there are ≥7 distinct buckets
+ * (a single cyclic shift by 0..6 over distinct elements is 7-distinct). Deterministic:
+ * same date+timezone always yields the same order. The result is fed through
+ * buildCrawlQueryPool so AI-deferral, dedup, and broad fallbacks still apply on top
+ * of the rotation.
+ *
+ * Shifting bucket order (vs. the old flat-list shift) matters when bucket sizes are
+ * uneven: alphabetically-early buckets with many queries (e.g. "blockchain", "defi")
+ * would otherwise dominate the front of the pool on most days, since a flat-list shift
+ * only moves the split point, not which topics cluster at the front. Shifting buckets
+ * guarantees every topic gets a turn leading regardless of how many queries it holds.
+ * (Only ONE rotation is applied — stacking a second, independent shift on top can
+ * cancel out and re-collide weekdays for uneven bucket sizes.)
  */
 export function buildDailyQueryPool(
   catalog: Record<string, string[]>,
@@ -94,22 +103,14 @@ export function buildDailyQueryPool(
 
   const dayOfWeek = dayOfWeekInTimezone(date, timezone);
 
-  // Flatten buckets in stable sorted order, then apply ONE cyclic shift by
-  // dayOfWeek. A single cyclic shift of a list of distinct elements by 0..6 is
-  // provably 7-distinct whenever the list has ≥7 entries — so every weekday gets
-  // a different leading category and a different crawl order, independent of how
-  // many buckets exist. (A second, bucket-level rotation was removed: two day-keyed
-  // shifts can cancel for uneven bucket sizes, re-colliding weekdays.)
+  const shift = bucketKeys.length > 1 ? dayOfWeek % bucketKeys.length : 0;
+  const rotatedKeys = [...bucketKeys.slice(shift), ...bucketKeys.slice(0, shift)];
+
   const flattened: string[] = [];
-  for (const key of bucketKeys) {
+  for (const key of rotatedKeys) {
     for (const query of catalog[key] ?? []) {
       flattened.push(query);
     }
-  }
-
-  if (flattened.length > 1) {
-    const shift = dayOfWeek % flattened.length;
-    flattened.push(...flattened.splice(0, shift));
   }
 
   // shuffle=false: preserve the day-rotated bucket order so the leading

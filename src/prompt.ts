@@ -197,9 +197,16 @@ function formatDateParts(
 // Bare "prompt"/"agent" dropped — they false-match non-AI posts ("prompt bayar", "agent properti").
 const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|cursor|copilot|anthropic|midjourney)\b|\b(ai|llm)\s*(agent|prompt)/i;
 
+// Covers chains, DeFi mechanics, and NFT/gaming — the CATEGORY_QUERIES "blockchain"
+// and "defi" buckets both feed this same overuse signal. Bare "token" dropped and
+// "staking" gated to crypto context — same false-match risk as AI_TOPIC_PATTERN's
+// bare "prompt"/"agent" ("token JWT", "token listrik", "staking gaji" aren't crypto).
+const CRYPTO_TOPIC_PATTERN =
+  /\b(crypto|web3|blockchain|defi|nft|arbitrum|ethereum|solana|tokenomics|yield farming|liquidity pool|dex|amm|smart contract|validator|GameFi|play to earn)\b|\bstaking\s*(eth|sol|crypto|token|coin)/i;
+
 function buildTopicMixSection(recentPosts: Post[]): string {
   if (recentPosts.length === 0) {
-    return 'No recent posts yet. Start with a broad trending angle, not an AI default.';
+    return 'No recent posts yet. Start with a broad trending angle, not an AI or crypto default.';
   }
 
   const aiFocusedPosts = recentPosts.filter((post) =>
@@ -209,11 +216,23 @@ function buildTopicMixSection(recentPosts: Post[]): string {
   // Trigger at 3+ of 10 OR ≥40% of any window ≥5 — AI is the exception, push back early
   const isAiOverused = aiFocusedPosts >= 3 || (recentPosts.length >= 5 && aiRatio >= 0.4);
 
+  const cryptoFocusedPosts = recentPosts.filter((post) =>
+    CRYPTO_TOPIC_PATTERN.test(post.generated_text),
+  ).length;
+  const cryptoRatio = cryptoFocusedPosts / recentPosts.length;
+  const isCryptoOverused = cryptoFocusedPosts >= 3 || (recentPosts.length >= 5 && cryptoRatio >= 0.4);
+
+  if (isCryptoOverused) {
+    return `${cryptoFocusedPosts}/${recentPosts.length} recent posts look crypto/web3-coded (blockchain, DeFi, Arbitrum, etc). Crypto is overused right now. Prefer a non-crypto trend from the source posts unless there is a specific fresh on-chain launch/event.
+
+⛔ TOPIC SLOT THIS ROUND: You have posted too much crypto/web3 content lately. Pick a NON-CRYPTO topic from the source posts — career, money, creator life, local culture, food, side projects, UMKM, gaji, freelance, anything grounded that is not blockchain/DeFi/web3. Only use crypto as a topic if there is a specific fresh launch or event in the source posts that is clearly trending. A generic "web3 lagi rame" is not enough — it must be a named, specific thing.`;
+  }
+
   if (isAiOverused) {
     return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.
 
 ⛔ TOPIC SLOT THIS ROUND: You have posted too much AI content lately. Pick a NON-AI topic from the source posts — career, money, creator life, local culture, side projects, UMKM, gaji, freelance, anything grounded and non-tech-tool. Only use AI as a topic if there is a specific fresh launch or event in the source posts that is clearly trending. "AI lagi rame" in general is not enough — it must be a named, specific thing.`;
   }
 
-  return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;
+  return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded, ${cryptoFocusedPosts}/${recentPosts.length} look crypto/web3-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;
 }

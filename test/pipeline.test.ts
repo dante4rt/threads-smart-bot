@@ -75,10 +75,37 @@ describe('buildDailyQueryPool', () => {
     return pools;
   };
 
-  it('produces 7 distinct orderings across the week even when buckets < 7', () => {
-    // 4 buckets / 8 queries. A single flat-list cyclic shift must make all 7
-    // weekdays distinct regardless of bucket count.
-    expect(new Set(sevenWeekdayPools(catalog)).size).toBe(7);
+  it('rotates the leading bucket through all bucket positions, capped by bucket count', () => {
+    // Rotation now shifts BUCKET ORDER (not flattened list position) so a large
+    // early-alphabet bucket (e.g. "blockchain") can't structurally dominate every
+    // day's front-of-pool just because it holds more queries than its neighbors.
+    // With 4 buckets, the leading bucket can only take 4 distinct positions across
+    // the week (min(7, bucketCount)) — that's the real ceiling for bucket-order
+    // rotation, not a regression. Buckets with ≥7 entries (the deriveCategoryQueries
+    // default shape, tested below) still reach full 7-distinct orderings.
+    expect(new Set(sevenWeekdayPools(catalog)).size).toBe(4);
+  });
+
+  it('gives every bucket an equal-length turn leading the pool, regardless of bucket size', () => {
+    // Regression guard for the original bug: a flat-list shift let a large bucket
+    // (many queries) dominate the front of the pool on most days, because shifting
+    // list POSITION rarely clears a large bucket's span in one 0-6 hop. Bucket-order
+    // rotation guarantees each bucket leads on exactly ceil(7/bucketCount) days.
+    const skewed = {
+      blockchain: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7'],
+      defi: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8'],
+      food: ['f1', 'f2'],
+    };
+    const leaders = new Set<string>();
+    const baseSunday = new Date('2026-06-21T05:00:00Z');
+    for (let day = 0; day < 7; day++) {
+      const date = new Date(baseSunday.getTime() + day * 24 * 60 * 60 * 1000);
+      const pool = buildDailyQueryPool(skewed, date, tz);
+      if (pool[0]) leaders.add(pool[0]);
+    }
+    // All 3 buckets must appear as a leader at least once across the week —
+    // "food" (2 queries) must lead just as often as "defi" (8 queries).
+    expect(leaders).toEqual(new Set(['b1', 'd1', 'f1']));
   });
 
   it('stays 7-distinct on the uneven-bucket shape the default derive path produces', () => {
