@@ -93,6 +93,9 @@ export function buildUserMessage(
     options.timezone ?? 'UTC',
   );
   const topicMixSection = buildTopicMixSection(recentPosts);
+  const accountBoundarySection = options.excludedTopics && options.excludedTopics.length > 0
+    ? `\n\n**Account topic boundary (zero tolerance):** Never write about: ${options.excludedTopics.join(', ')}. Do not use it as a comparison, a joke, a source example, or a fallback topic.`
+    : '';
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -112,7 +115,7 @@ export function buildUserMessage(
 **Current year:** ${currentYear}
 Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
 
-**Search queries used:** ${queries.join(', ')}${options.authorContext ? `\n\n**About me (mention my projects naturally when the topic fits, no hard selling):**\n${options.authorContext}` : ''}
+**Search queries used:** ${queries.join(', ')}${options.authorContext ? `\n\n**About me (mention my projects naturally when the topic fits, no hard selling):**\n${options.authorContext}` : ''}${accountBoundarySection}
 
 **Recent topic mix guard:**
 ${topicMixSection}
@@ -142,6 +145,7 @@ interface PromptBuildOptions {
   now?: Date;
   timezone?: string;
   authorContext?: string;
+  excludedTopics?: string[];
 }
 
 function resolvePromptDateContext(

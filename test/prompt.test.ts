@@ -63,6 +63,15 @@ describe('buildMessages', () => {
     expect(user).toContain('Do not reuse an outdated year');
   });
 
+  it('sets an explicit account topic boundary when topics are excluded', () => {
+    const [, user] = buildMessages(sourcePosts, recentPosts, ['trending'], {
+      excludedTopics: ['Arbitrum'],
+    });
+
+    expect(user).toContain('Account topic boundary');
+    expect(user).toContain('Never write about: Arbitrum');
+  });
+
   it('uses the configured timezone when resolving the current year', () => {
     const [, user] = buildMessages(sourcePosts, recentPosts, ['tech'], {
       now: new Date('2025-12-31T17:30:00Z'),

@@ -12,6 +12,7 @@ const ENV_KEYS = [
   'OPENROUTER_MODEL',
   'SEARCH_QUERIES',
   'CATEGORY_QUERIES',
+  'EXCLUDED_TOPICS',
   'MIN_SOURCE_POSTS',
   'MIN_SOURCE_QUERIES',
   'MAX_SOURCE_POSTS_PER_QUERY',
@@ -98,6 +99,16 @@ describe('getConfig', () => {
     expect(config.minSourcePosts).toBe(10);
     expect(config.minSourceQueries).toBe(3);
     expect(config.maxSourcePostsPerQuery).toBe(4);
+    expect(config.excludedTopics).toEqual(['Arbitrum']);
+  });
+
+  it('parses account-level excluded topics', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.EXCLUDED_TOPICS = 'Arbitrum, crypto trading, arbitrum';
+
+    expect(getConfig().excludedTopics).toEqual(['Arbitrum', 'crypto trading']);
   });
 
   it('derives category buckets from SEARCH_QUERIES when CATEGORY_QUERIES is unset', () => {

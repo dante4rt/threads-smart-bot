@@ -65,6 +65,12 @@ export interface QueryCrawlResult {
   uniqueAddedPosts: ThreadsPost[];
 }
 
+/** Match a configured account boundary without treating it as a regular expression. */
+export function findExcludedTopic(text: string, excludedTopics: string[]): string | undefined {
+  const normalizedText = text.toLowerCase();
+  return excludedTopics.find((topic) => normalizedText.includes(topic.toLowerCase()));
+}
+
 /** Day index (0=Sunday … 6=Saturday) for a date in the given IANA timezone. */
 export function dayOfWeekInTimezone(date: Date, timezone: string): number {
   const weekday = new Intl.DateTimeFormat('en-US', {
@@ -97,6 +103,7 @@ export function buildDailyQueryPool(
   catalog: Record<string, string[]>,
   date: Date,
   timezone: string,
+  excludedTopics: string[] = [],
 ): string[] {
   const bucketKeys = Object.keys(catalog).sort();
   if (bucketKeys.length === 0) return [];
@@ -115,10 +122,14 @@ export function buildDailyQueryPool(
 
   // shuffle=false: preserve the day-rotated bucket order so the leading
   // categories actually differ per weekday instead of being re-randomized away.
-  return buildCrawlQueryPool(flattened, false);
+  return buildCrawlQueryPool(flattened, false, excludedTopics);
 }
 
-export function buildCrawlQueryPool(searchQueries: string[], shuffle = true): string[] {
+export function buildCrawlQueryPool(
+  searchQueries: string[],
+  shuffle = true,
+  excludedTopics: string[] = [],
+): string[] {
   const uniqueQueries = new Set<string>();
   const uniqueDeferredAiQueries = new Set<string>();
   const crawlQueries: string[] = [];
@@ -127,7 +138,7 @@ export function buildCrawlQueryPool(searchQueries: string[], shuffle = true): st
   const addQuery = (query: string, target: string[]): void => {
     const normalized = query.trim();
     const key = normalized.toLowerCase();
-    if (!normalized || uniqueQueries.has(key)) return;
+    if (!normalized || uniqueQueries.has(key) || findExcludedTopic(normalized, excludedTopics)) return;
     uniqueQueries.add(key);
     target.push(normalized);
   };
@@ -135,7 +146,12 @@ export function buildCrawlQueryPool(searchQueries: string[], shuffle = true): st
   const deferAiQuery = (query: string): void => {
     const normalized = query.trim();
     const key = normalized.toLowerCase();
-    if (!normalized || uniqueQueries.has(key) || uniqueDeferredAiQueries.has(key)) return;
+    if (
+      !normalized ||
+      uniqueQueries.has(key) ||
+      uniqueDeferredAiQueries.has(key) ||
+      findExcludedTopic(normalized, excludedTopics)
+    ) return;
     uniqueDeferredAiQueries.add(key);
     deferredAiQueries.push(normalized);
   };
@@ -179,6 +195,7 @@ export async function collectSourcePosts(
   searchFn: (query: string, limit: number) => Promise<ThreadsPost[]>,
   /** Pre-built crawl pool (e.g. day-rotated). When omitted, derived from searchQueries. */
   crawlQueries: string[] = buildCrawlQueryPool(searchQueries),
+  excludedTopics: string[] = [],
 ): Promise<{
   posts: ThreadsPost[];
   usedQueries: string[];
@@ -191,11 +208,15 @@ export async function collectSourcePosts(
   let allPosts: ThreadsPost[] = [];
 
   for (const query of crawlQueries) {
+    if (findExcludedTopic(query, excludedTopics)) continue;
+
     if (allPosts.length >= minSourcePosts && successfulQueries.length >= minSourceQueries) {
       break;
     }
 
-    const posts = await searchFn(query, POSTS_PER_QUERY);
+    const posts = (await searchFn(query, POSTS_PER_QUERY)).filter(
+      (post) => !findExcludedTopic(post.text ?? '', excludedTopics),
+    );
     usedQueries.push(query);
     const existingIds = new Set(allPosts.map((post) => post.id));
     const uniqueAddedPosts = posts.filter((post) => !existingIds.has(post.id));
@@ -323,13 +344,19 @@ export async function runPipeline(
       maxSourcePostsPerQuery: config.maxSourcePostsPerQuery,
     });
 
-    const dailyQueryPool = buildDailyQueryPool(config.categoryQueries, new Date(), config.timezone);
+    const dailyQueryPool = buildDailyQueryPool(
+      config.categoryQueries,
+      new Date(),
+      config.timezone,
+      config.excludedTopics,
+    );
     const { posts: allPosts, usedQueries, successfulQueries, queryResults } = await collectSourcePosts(
       config.searchQueries,
       config.minSourcePosts,
       config.minSourceQueries,
       (query, limit) => withRetry(() => threadsClient.keywordSearch(query, limit)),
       dailyQueryPool,
+      config.excludedTopics,
     );
 
     logger.info('Crawl complete', {
@@ -363,6 +390,7 @@ export async function runPipeline(
     const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries, {
       timezone: config.timezone,
       authorContext: config.authorContext || undefined,
+      excludedTopics: config.excludedTopics,
     });
 
     logger.info('Craft stage', {
@@ -418,6 +446,13 @@ export async function runPipeline(
         ),
     );
     const safeText = sanitizePost(fittedText);
+    const excludedTopic = findExcludedTopic(safeText, config.excludedTopics);
+    if (excludedTopic) {
+      const message = `Skipping publish: generated post violates the account topic boundary (${excludedTopic}).`;
+      logger.warn('Craft stage rejected by account topic boundary', { excludedTopic });
+      completeRun(db, runId, 'failed', message);
+      return { status: 'skipped', error: message };
+    }
     logger.info('Post crafted', { length: safeText.length });
 
     // ── Stage 3: Publish ──────────────────────────────────────────────────

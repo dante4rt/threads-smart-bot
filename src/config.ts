@@ -16,6 +16,20 @@ function parseBool(val: string): boolean {
   return val.toLowerCase() === 'true' || val === '1';
 }
 
+function parseTopicList(value: string): string[] {
+  const seen = new Set<string>();
+
+  return value
+    .split(',')
+    .map((topic) => topic.trim())
+    .filter((topic) => {
+      const key = topic.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 function parsePositiveInt(val: string, key: string): number {
   const parsed = Number.parseInt(val, 10);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -114,6 +128,8 @@ export interface Config {
 
   unsplashAccessKey: string | undefined;
   authorContext: string;
+  /** Topics this personal account must never source or publish. */
+  excludedTopics: string[];
   dryRun: boolean;
 }
 
@@ -188,6 +204,7 @@ export function getConfig(): Config {
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     authorContext: optionalEnv('AUTHOR_CONTEXT', ''),
+    excludedTopics: parseTopicList(optionalEnv('EXCLUDED_TOPICS', 'Arbitrum')),
     dryRun: parseBool(optionalEnv('DRY_RUN', 'false')),
   };
 

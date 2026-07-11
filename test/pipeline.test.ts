@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildBalancedSourcePosts,
@@ -6,7 +7,22 @@ import {
   collectSourcePosts,
   dayOfWeekInTimezone,
   fitPostToLimit,
+  findExcludedTopic,
+  runPipeline,
 } from '../src/pipeline.js';
+import { OpenRouterClient } from '../src/openrouter.js';
+import { ThreadsClient } from '../src/threads-api.js';
+import type { Config } from '../src/config.js';
+
+describe('findExcludedTopic', () => {
+  it('matches an account boundary regardless of text casing', () => {
+    expect(findExcludedTopic('Update ArBiTrUm baru lagi', ['Arbitrum'])).toBe('Arbitrum');
+  });
+
+  it('does not reject unrelated content', () => {
+    expect(findExcludedTopic('Kuliner Jakarta lagi ramai', ['Arbitrum'])).toBeUndefined();
+  });
+});
 
 describe('buildCrawlQueryPool', () => {
   it('preserves configured queries and appends broader fallbacks without duplicates', () => {
@@ -22,6 +38,13 @@ describe('buildCrawlQueryPool', () => {
     expect(queries.indexOf('trending')).toBeLessThan(queries.indexOf('AI'));
     expect(queries.indexOf('Indonesia')).toBeLessThan(queries.indexOf('AI'));
     expect(queries.indexOf('bisnis')).toBeLessThan(queries.indexOf('AI'));
+  });
+
+  it('removes excluded hardcoded fallback queries', () => {
+    const queries = buildCrawlQueryPool(['tech'], false, ['crypto', 'web3']);
+
+    expect(queries).not.toContain('crypto');
+    expect(queries).not.toContain('web3');
   });
 });
 
@@ -63,6 +86,19 @@ describe('buildDailyQueryPool', () => {
     // Same query set, different ordering — the leading query differs by day.
     expect(new Set(mon)).toEqual(new Set(tue));
     expect(mon[0]).not.toBe(tue[0]);
+  });
+
+  it('removes excluded topics from the crawl pool', () => {
+    const pool = buildDailyQueryPool(
+      { crypto: ['Arbitrum', 'Ethereum'], food: ['kuliner Jakarta'] },
+      monday,
+      tz,
+      ['Arbitrum'],
+    );
+
+    expect(pool).not.toContain('Arbitrum');
+    expect(pool).toContain('Ethereum');
+    expect(pool).toContain('kuliner Jakarta');
   });
 
   const sevenWeekdayPools = (cat: Record<string, string[]>): string[] => {
@@ -215,6 +251,38 @@ describe('collectSourcePosts', () => {
     expect(result.successfulQueries).toEqual(['tech']);
     expect(searchFn).toHaveBeenCalled();
   });
+
+  it('excludes matching source posts before they can reach the prompt', async () => {
+    const searchFn = vi.fn(async () => [
+      { id: 'arbitrum', text: 'Arbitrum lagi ramai' },
+      { id: 'food', text: 'Makan siang dekat kantor lagi viral' },
+    ]);
+
+    const result = await collectSourcePosts(['trending'], 1, 1, searchFn, ['trending'], ['Arbitrum']);
+
+    expect(result.posts).toEqual([{ id: 'food', text: 'Makan siang dekat kantor lagi viral' }]);
+    expect(result.successfulQueries).toEqual(['trending']);
+  });
+
+  it('continues crawling when an early query only returns excluded posts', async () => {
+    const searchFn = vi.fn(async (query: string) => {
+      if (query === 'trending') return [{ id: 'arbitrum', text: 'Arbitrum lagi ramai' }];
+      return [{ id: 'food', text: 'Makan siang dekat kantor lagi viral' }];
+    });
+
+    const result = await collectSourcePosts(
+      ['trending', 'viral'],
+      1,
+      1,
+      searchFn,
+      ['trending', 'viral'],
+      ['Arbitrum'],
+    );
+
+    expect(result.usedQueries).toEqual(['trending', 'viral']);
+    expect(result.successfulQueries).toEqual(['viral']);
+    expect(result.posts.map((post) => post.id)).toEqual(['food']);
+  });
 });
 
 describe('buildBalancedSourcePosts', () => {
@@ -284,5 +352,60 @@ describe('fitPostToLimit', () => {
 
     expect(result.length).toBeLessThanOrEqual(450);
     expect(rewriteFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('runPipeline account topic boundary', () => {
+  it('skips publishing when shortening changes a safe draft into an excluded topic', async () => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, source_query TEXT, source_post_ids TEXT, generated_text TEXT NOT NULL, threads_post_id TEXT, published_at TEXT);
+      CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT NOT NULL, error_message TEXT, started_at TEXT NOT NULL, completed_at TEXT);
+    `);
+
+    const config: Config = {
+      threadsAppId: 'app-id',
+      threadsAppSecret: 'app-secret',
+      threadsUserId: '123',
+      threadsAccessToken: 'access-token',
+      threadsRedirectUri: 'https://localhost/callback',
+      dbPath: ':memory:',
+      openrouterApiKey: 'or-key',
+      openrouterModel: 'test-model',
+      searchQueries: ['trending'],
+      categoryQueries: { general: ['trending'] },
+      minSourcePosts: 1,
+      minSourceQueries: 1,
+      maxSourcePostsPerQuery: 1,
+      postTimes: ['12:15'],
+      timezone: 'Asia/Jakarta',
+      unsplashAccessKey: undefined,
+      authorContext: '',
+      excludedTopics: ['Arbitrum'],
+      dryRun: false,
+    };
+
+    vi.spyOn(ThreadsClient.prototype, 'maybeRefreshToken').mockResolvedValue(undefined);
+    vi.spyOn(ThreadsClient.prototype, 'keywordSearch').mockResolvedValue([
+      { id: 'source-1', text: 'Kuliner Jakarta lagi ramai' },
+    ]);
+    const createMediaContainer = vi.spyOn(ThreadsClient.prototype, 'createMediaContainer');
+    const publishMediaContainer = vi.spyOn(ThreadsClient.prototype, 'publishMediaContainer');
+    vi.spyOn(OpenRouterClient.prototype, 'chat')
+      .mockResolvedValueOnce('Aman '.repeat(100))
+      .mockResolvedValueOnce('{"grounded":true,"violations":[]}')
+      .mockResolvedValueOnce('Arbitrum update');
+
+    try {
+      const result = await runPipeline(config, db);
+
+      expect(result).toMatchObject({ status: 'skipped', error: expect.stringContaining('Arbitrum') });
+      expect(createMediaContainer).not.toHaveBeenCalled();
+      expect(publishMediaContainer).not.toHaveBeenCalled();
+      expect(db.prepare('SELECT status FROM runs').get()).toEqual({ status: 'failed' });
+    } finally {
+      vi.restoreAllMocks();
+      db.close();
+    }
   });
 });
