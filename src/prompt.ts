@@ -23,6 +23,8 @@ You do NOT need a 4-part essay. Short + concrete > long + abstract.
 
 **Length:** 60-280 chars is the zone. 400 hard max. Micro one-liners (under 60) are fine if punchy. Long essay = exception, not default.
 
+**Line breaks:** If the post has more than one beat or sentence (SAR, AOR, NOQ shapes), put a blank line between beats instead of writing one dense paragraph. Threads renders line breaks, use them so the post is scannable. Example shape: "[Situation line]\\n\\n[Angle/reaction line]\\n\\n[Receipt/pointer or question line]." MICRO one-liners (1-2 lines) don't need breaks, just write them short.
+
 **MUST-HAVE (every post needs at least one):**
 - Concrete subject: tool name, repo, project, event, place, person, command, error message, screenshot context. Something a stranger could google.
 - OR a real first-person action: "Gue baru / lagi / abis [verb]..."
@@ -96,6 +98,7 @@ export function buildUserMessage(
   const accountBoundarySection = options.excludedTopics && options.excludedTopics.length > 0
     ? `\n\n**Account topic boundary (zero tolerance):** Never write about: ${options.excludedTopics.join(', ')}. Do not use it as a comparison, a joke, a source example, or a fallback topic.`
     : '';
+  const authorContextSection = buildAuthorContextSection(options.authorContext, recentPosts);
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -115,7 +118,7 @@ export function buildUserMessage(
 **Current year:** ${currentYear}
 Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
 
-**Search queries used:** ${queries.join(', ')}${options.authorContext ? `\n\n**About me (mention my projects naturally when the topic fits, no hard selling):**\n${options.authorContext}` : ''}${accountBoundarySection}
+**Search queries used:** ${queries.join(', ')}${authorContextSection}${accountBoundarySection}
 
 **Recent topic mix guard:**
 ${topicMixSection}
@@ -207,6 +210,40 @@ const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|cursor|copilot|
 // bare "prompt"/"agent" ("token JWT", "token listrik", "staking gaji" aren't crypto).
 const CRYPTO_TOPIC_PATTERN =
   /\b(crypto|web3|blockchain|defi|nft|arbitrum|ethereum|solana|tokenomics|yield farming|liquidity pool|dex|amm|smart contract|validator|GameFi|play to earn)\b|\bstaking\s*(eth|sol|crypto|token|coin)/i;
+
+/**
+ * Pull a matchable product/brand name out of AUTHOR_CONTEXT free text, e.g.
+ * "I build MakanApa (https://...) — a food discovery app" -> "MakanApa".
+ * Picks the first capitalized word of 3+ chars; skips common sentence-starters.
+ */
+function extractAuthorContextKeyword(authorContext: string): string | undefined {
+  const skipWords = new Set(['I', 'The', 'My', 'A', 'An']);
+  const matches = authorContext.match(/\b[A-Z][a-zA-Z0-9]{2,}\b/g) ?? [];
+  return matches.find((word) => !skipWords.has(word));
+}
+
+/**
+ * AUTHOR_CONTEXT is optional flavor, not a mandate — without a cap the model
+ * mentions the author's own project on nearly every post. Suppress the block
+ * when recent posts already reference it, so it surfaces occasionally instead
+ * of dominating the feed the way AI/crypto topics can (see buildTopicMixSection).
+ */
+function buildAuthorContextSection(authorContext: string | undefined, recentPosts: Post[]): string {
+  if (!authorContext) return '';
+
+  const keyword = extractAuthorContextKeyword(authorContext);
+  if (keyword) {
+    const pattern = new RegExp(`\\b${keyword}\\b`, 'i');
+    const recentMentions = recentPosts.filter((post) => pattern.test(post.generated_text)).length;
+    // Cap tighter than the AI/crypto topic guard (3+ of 10): this is a single
+    // project mention, not a topic category, so 2+ of the last 10 is already overuse.
+    if (recentMentions >= 2) {
+      return '';
+    }
+  }
+
+  return `\n\n**About me (mention my projects naturally ONLY if the topic genuinely fits, no hard selling, do not force it every post):**\n${authorContext}`;
+}
 
 function buildTopicMixSection(recentPosts: Post[]): string {
   if (recentPosts.length === 0) {

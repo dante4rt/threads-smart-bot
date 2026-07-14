@@ -372,6 +372,7 @@ describe('runPipeline account topic boundary', () => {
       dbPath: ':memory:',
       openrouterApiKey: 'or-key',
       openrouterModel: 'test-model',
+      llmBaseUrl: 'https://openrouter.ai/api/v1',
       searchQueries: ['trending'],
       categoryQueries: { general: ['trending'] },
       minSourcePosts: 1,

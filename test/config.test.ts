@@ -10,6 +10,9 @@ const ENV_KEYS = [
   'DB_PATH',
   'OPENROUTER_API_KEY',
   'OPENROUTER_MODEL',
+  'LLM_BASE_URL',
+  'LLM_API_KEY',
+  'LLM_MODEL',
   'SEARCH_QUERIES',
   'CATEGORY_QUERIES',
   'EXCLUDED_TOPICS',
@@ -149,6 +152,46 @@ describe('getConfig', () => {
     process.env.CATEGORY_QUERIES = '{not json}';
 
     expect(() => getConfig()).toThrow(/CATEGORY_QUERIES must be valid JSON/);
+  });
+
+  it('defaults llmBaseUrl to OpenRouter when LLM_BASE_URL is unset', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+
+    expect(getConfig().llmBaseUrl).toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('uses LLM_BASE_URL/LLM_API_KEY/LLM_MODEL to point at a self-hosted endpoint', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.LLM_BASE_URL = 'http://bablalbal/v1';
+    process.env.LLM_API_KEY = 'nine-router-key';
+    process.env.LLM_MODEL = 'nine-router-model';
+
+    const config = getConfig();
+
+    expect(config.llmBaseUrl).toBe('http://bablalbal/v1');
+    expect(config.openrouterApiKey).toBe('nine-router-key');
+    expect(config.openrouterModel).toBe('nine-router-model');
+  });
+
+  it('does not require OPENROUTER_API_KEY when LLM_API_KEY is set', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.LLM_API_KEY = 'nine-router-key';
+    process.env.LLM_MODEL = 'nine-router-model';
+
+    expect(() => getConfig()).not.toThrow();
+  });
+
+  it('requires LLM_MODEL when LLM_BASE_URL is set, to avoid an opaque model-not-found at request time', () => {
+    process.env.THREADS_APP_ID = 'app-id';
+    process.env.THREADS_APP_SECRET = 'app-secret';
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    process.env.LLM_BASE_URL = 'http://bablalbal/v1';
+
+    expect(() => getConfig()).toThrow(/LLM_MODEL is required when LLM_BASE_URL is set/);
   });
 
   it('parses crawl thresholds when provided', () => {

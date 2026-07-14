@@ -4,7 +4,15 @@ import { TransientError } from './errors.js';
 import { logger } from './logger.js';
 import type { Config } from './config.js';
 
-const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+/**
+ * Normalize a configured base URL to end in "/chat/completions", tolerating
+ * both "http://host" and "http://host/v1" input (mirrors 9router client convention).
+ */
+function resolveChatCompletionsUrl(baseUrl: string): string {
+  let base = baseUrl.replace(/\/+$/, '');
+  base = base.replace(/\/v1$/, '');
+  return `${base}/v1/chat/completions`;
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -33,7 +41,7 @@ export class OpenRouterClient {
   async chat(messages: ChatMessage[], maxTokens = 600, temperature = 0.85): Promise<string> {
     let res: Response;
     try {
-      res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+      res = await fetch(resolveChatCompletionsUrl(this.config.llmBaseUrl), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.config.openrouterApiKey}`,

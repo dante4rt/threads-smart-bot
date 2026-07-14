@@ -1,6 +1,6 @@
 # threads-smart-bot
 
-Threads bot for crawling trending posts, generating original Bahasa Indonesia content with OpenRouter, and publishing on demand or on a schedule.
+Threads bot for crawling trending posts, generating original Bahasa Indonesia content via OpenRouter (or any self-hosted OpenAI-compatible endpoint), and publishing on demand or on a schedule.
 
 Pipeline: `keyword search -> prompt -> grounding gate -> optional image -> publish -> SQLite`
 
@@ -26,7 +26,8 @@ Pipeline: `keyword search -> prompt -> grounding gate -> optional image -> publi
 - **Category rotation** — `CATEGORY_QUERIES` splits search terms into themed buckets, rotating a different lead category each day of the week
 - **AI topic guard** — monitors recent posts; if AI/tooling content exceeds thresholds, forces a non-AI topic
 - **Grounding gate** — drafts are fact-checked against source posts before publishing; unsupported claims trigger rewrites (up to 3 attempts)
-- **Author context** — `AUTHOR_CONTEXT` injects a short bio/projects blurb into the prompt so the LLM can reference your work naturally
+- **Author context** — `AUTHOR_CONTEXT` injects a short bio/projects blurb so the LLM can reference your work naturally, auto-suppressed once it's been mentioned recently
+- **Pluggable LLM backend** — `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL` route generation through any self-hosted OpenAI-compatible endpoint; defaults to OpenRouter
 
 ## Quick Start
 
@@ -153,12 +154,15 @@ Meta docs:
 | `THREADS_APP_SECRET` | — | Meta Threads app secret |
 | `THREADS_USER_ID` | empty | Optional override; auto-stored after auth |
 | `THREADS_REDIRECT_URI` | `https://localhost/callback` | Must match Meta app config exactly |
-| `OPENROUTER_API_KEY` | — | Required for crawl + craft pipeline |
+| `OPENROUTER_API_KEY` | — | Required for crawl + craft pipeline (unless `LLM_API_KEY` is set) |
 | `THREADS_ACCESS_TOKEN` | empty | Optional bootstrap fallback before SQLite exists |
-| `OPENROUTER_MODEL` | `anthropic/claude-opus-4-6` | OpenRouter model |
+| `OPENROUTER_MODEL` | `anthropic/claude-opus-4-6` | OpenRouter model (unless `LLM_MODEL` is set) |
+| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | Point at a self-hosted/OpenAI-compatible endpoint (e.g. 9router) instead of OpenRouter. Works with or without a trailing `/v1` |
+| `LLM_API_KEY` | — | Overrides `OPENROUTER_API_KEY` when set |
+| `LLM_MODEL` | — | Overrides `OPENROUTER_MODEL` when set |
 | `SEARCH_QUERIES` | (long default — see `.env.example`) | Comma-separated seed queries for crawl |
 | `CATEGORY_QUERIES` | auto-derived from `SEARCH_QUERIES` | JSON map of themed query buckets for day-of-week rotation. Example: `{"tech":["ngoding","SaaS"],"fintech":["crypto"]}` |
-| `AUTHOR_CONTEXT` | empty | Short bio or project list injected into every prompt. Lets the LLM reference your work naturally when topics align. |
+| `AUTHOR_CONTEXT` | empty | Short bio or project list. Lets the LLM reference your work naturally when topics align; suppressed automatically once your project was mentioned in 2+ of the last 10 posts, so it doesn't dominate the feed. |
 | `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
 | `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
 | `MAX_SOURCE_POSTS_PER_QUERY` | `4` | Caps prompt dominance from one query |
@@ -183,7 +187,8 @@ Meta docs:
 - The prompt uses a silent STEPPS filter (Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories) plus recent-post topic checks to avoid repeating generic AI angles.
 - **Category rotation:** when `CATEGORY_QUERIES` is set, the bot picks a different lead bucket each day (Monday = bucket 1, Tuesday = bucket 2, etc.) so the feed stays varied. Without it, `SEARCH_QUERIES` is split into 7 round-robin buckets automatically.
 - **Grounding gate:** every draft is checked against the source posts that inspired it. Claims that aren't directly supported by the source material trigger a rewrite, up to 3 attempts. If all attempts fail, the post is skipped.
-- **Author context:** set `AUTHOR_CONTEXT` to a short description of your projects or expertise. The LLM sees it in every prompt and can weave references naturally when food/tech/career topics align — no hard selling.
+- **Author context:** set `AUTHOR_CONTEXT` to a short description of your projects or expertise. The LLM can weave references naturally when topics align, no hard selling. It's dropped from the prompt once your project name shows up in 2+ of the last 10 posts, so the account doesn't turn into a single-topic feed.
+- **Self-hosted LLM:** set `LLM_BASE_URL` (+ `LLM_API_KEY`, `LLM_MODEL`) to route generation through any OpenAI-compatible chat-completions endpoint (e.g. [9router](https://github.com/dante4rt/threads-multi-bot)) instead of OpenRouter. Falls back to OpenRouter when unset.
 
 ## Troubleshooting
 

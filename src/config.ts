@@ -112,6 +112,8 @@ export interface Config {
 
   openrouterApiKey: string;
   openrouterModel: string;
+  /** Chat-completions base URL. Defaults to OpenRouter; set LLM_BASE_URL to point at a self-hosted/OpenAI-compatible endpoint (e.g. 9router). */
+  llmBaseUrl: string;
 
   searchQueries: string[];
   /**
@@ -172,11 +174,19 @@ export function getConfig(): Config {
 
   const authConfig = getAuthConfig();
 
+  // LLM_BASE_URL declares a self-hosted endpoint — silently falling back to an
+  // OpenRouter-namespaced model ID there fails opaquely at request time instead
+  // of at config load, so require the pairing explicitly.
+  if (process.env['LLM_BASE_URL'] && !process.env['LLM_MODEL']) {
+    throw new ConfigError('LLM_MODEL is required when LLM_BASE_URL is set (the OpenRouter default model will not exist on a self-hosted endpoint)');
+  }
+
   _config = {
     ...authConfig,
 
-    openrouterApiKey:  requireEnv('OPENROUTER_API_KEY'),
-    openrouterModel:   optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
+    openrouterApiKey:  process.env['LLM_API_KEY'] || requireEnv('OPENROUTER_API_KEY'),
+    openrouterModel:   process.env['LLM_MODEL'] || optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
+    llmBaseUrl:        optionalEnv('LLM_BASE_URL', 'https://openrouter.ai/api/v1'),
 
     searchQueries: optionalEnv(
       'SEARCH_QUERIES',

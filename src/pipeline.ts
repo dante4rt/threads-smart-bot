@@ -437,6 +437,7 @@ export async function runPipeline(
                   `Make it SHORTER and PUNCHIER, fit under ${targetChars} characters. ` +
                   `Pick the single strongest angle and cut everything else. ` +
                   `No em dashes, no colons, no hashtags, no emojis unless essential, no filler. ` +
+                  `Keep line breaks between beats if the original has them, don't flatten into one paragraph. ` +
                   'Return ONLY the rewritten post text.',
               },
               { role: 'user', content: text },

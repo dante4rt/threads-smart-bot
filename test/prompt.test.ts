@@ -218,6 +218,46 @@ describe('buildMessages', () => {
     expect(user).toContain('specific fresh launch or event');
   });
 
+  it('system prompt instructs line breaks between beats', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Line breaks/i);
+    expect(SYSTEM_PROMPT).toMatch(/blank line between beats/i);
+  });
+
+  it('injects author context when no recent post mentions the project', () => {
+    const authorContext = 'I build MakanApa (https://makanapa-nih.vercel.app/) — a food discovery app.';
+    const [, user] = buildMessages(sourcePosts, recentPosts, ['tech'], { authorContext });
+
+    expect(user).toContain('About me');
+    expect(user).toContain('MakanApa');
+  });
+
+  it('suppresses author context once the project was mentioned twice recently', () => {
+    const authorContext = 'I build MakanApa (https://makanapa-nih.vercel.app/) — a food discovery app.';
+    const makanapaHeavyRecentPosts: Post[] = [
+      {
+        id: 1,
+        source_query: 'food',
+        source_post_ids: null,
+        generated_text: 'Baru nemu fitur baru di MakanApa buat cari makan siang.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+      {
+        id: 2,
+        source_query: 'food',
+        source_post_ids: null,
+        generated_text: 'MakanApa sekarang bisa cover area Bekasi juga.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, makanapaHeavyRecentPosts, ['tech'], { authorContext });
+
+    expect(user).not.toContain('About me');
+    expect(user).not.toContain('MakanApa (https');
+  });
+
   it('does not inject topic-slot command when AI posts are below the threshold', () => {
     const mixedRecentPosts: Post[] = [
       {
