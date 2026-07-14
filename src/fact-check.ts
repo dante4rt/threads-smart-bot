@@ -143,7 +143,9 @@ export async function verifyPostGrounding(
         content: `SOURCE POSTS:\n${sourceSection}\n\nDRAFT:\n"${postText}"`,
       },
     ],
-    500,
+    // 1200: reasoning models spend tokens thinking before the JSON verdict; 500 was
+    // enough for non-reasoning models but cut reasoning models off before any output.
+    1200,
     0,
   );
 

@@ -442,7 +442,9 @@ export async function runPipeline(
               },
               { role: 'user', content: text },
             ],
-            400,
+            // 1000: reasoning models spend tokens thinking before the rewrite; 400 was
+            // enough for non-reasoning models but cut reasoning models off before any output.
+            1000,
           ),
         ),
     );

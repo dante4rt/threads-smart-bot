@@ -38,7 +38,10 @@ export interface ChatResponse {
 export class OpenRouterClient {
   constructor(private readonly config: Config) {}
 
-  async chat(messages: ChatMessage[], maxTokens = 600, temperature = 0.85): Promise<string> {
+  // Default sized for reasoning models (e.g. deepseek-v4-pro via 9router): they spend
+  // tokens thinking before writing the final answer, so a budget tuned for a
+  // non-reasoning model cuts them off mid-thought and returns empty content.
+  async chat(messages: ChatMessage[], maxTokens = 2000, temperature = 0.85): Promise<string> {
     let res: Response;
     try {
       res = await fetch(resolveChatCompletionsUrl(this.config.llmBaseUrl), {
@@ -77,7 +80,13 @@ export class OpenRouterClient {
 
     const content = data.choices[0]?.message?.content;
     if (!content) {
-      throw new Error('OpenRouter returned empty content');
+      const finishReason = data.choices[0]?.finish_reason;
+      // finish_reason "length" means max_tokens ran out — for reasoning models that
+      // "think" before writing the final answer, that means it never got there.
+      const hint = finishReason === 'length'
+        ? ' (finish_reason=length — increase max_tokens, the model likely ran out of budget mid-reasoning)'
+        : finishReason ? ` (finish_reason=${finishReason})` : '';
+      throw new Error(`OpenRouter returned empty content${hint}`);
     }
 
     logger.debug('OpenRouter response', {
