@@ -118,24 +118,28 @@ const EMPLOYER_PATTERN =
 
 /**
  * Drop any sentence that references the author's employer or day job.
- * Splits on sentence boundaries (. ! ? newline), removes matching sentences, rejoins.
- * A partial inline edit would leave broken fragments, so the whole sentence goes.
+ * Splits into paragraphs (on blank lines) first so paragraph breaks survive,
+ * then drops matching sentences within each paragraph. A partial inline edit
+ * would leave broken fragments, so the whole sentence goes.
  */
 export function stripEmployerSentences(text: string): string {
-  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
-  const kept = sentences.filter((s) => s.trim() !== '' && !EMPLOYER_PATTERN.test(s));
-  return kept.join(' ').trim();
+  const paragraphs = text.split(/\n\s*\n/).map((paragraph) => {
+    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    return sentences.filter((s) => s.trim() !== '' && !EMPLOYER_PATTERN.test(s)).join(' ').trim();
+  });
+  return paragraphs.filter((paragraph) => paragraph !== '').join('\n\n').trim();
 }
 
 /**
  * Strip AI-generated artifacts from post text.
- * Removes em dashes, clause-level colons, employer references, normalizes whitespace.
+ * Removes em dashes, clause-level colons, markdown code spans, employer references, normalizes whitespace.
  */
 export function sanitizePost(text: string): string {
   return stripEmployerSentences(text)
     .replace(/\u2014/g, ',')   // em dash → comma
     .replace(/\u2013/g, '-')   // en dash → hyphen
     .replace(/\u2026/g, '...') // ellipsis char → three dots
+    .replace(/`/g, '')         // backtick — Threads has no markdown code-span rendering, shows literally
     .replace(/(\S):\s+(?=\D)/g, '$1, ') // "Topic: text" -> "Topic, text"; spares https:// and 10:30
     .replace(/,\s*,/g, ',')    // double commas from replacement
     .replace(/ {2,}/g, ' ')    // collapse multiple spaces

@@ -166,4 +166,25 @@ describe('sanitizePost', () => {
       'Gue lagi bikin app presensi sendiri.',
     );
   });
+
+  it('preserves line breaks between paragraphs', () => {
+    expect(sanitizePost('Baris pertama.\n\nBaris kedua.\n\nBaris ketiga.')).toBe(
+      'Baris pertama.\n\nBaris kedua.\n\nBaris ketiga.',
+    );
+  });
+
+  it('preserves line breaks even when an employer sentence is dropped from one line', () => {
+    expect(sanitizePost('Gue di kantor lagi mikir soal X.\n\nTernyata jawabannya gampang.')).toBe(
+      'Ternyata jawabannya gampang.',
+    );
+    expect(sanitizePost('Baris pertama aman.\n\nGue di kantor lagi mikir.\n\nBaris ketiga aman.')).toBe(
+      'Baris pertama aman.\n\nBaris ketiga aman.',
+    );
+  });
+
+  it('strips backticks since Threads has no markdown code-span rendering', () => {
+    expect(sanitizePost('Ternyata `DATABASE_URL` beda kapitalisasi.')).toBe(
+      'Ternyata DATABASE_URL beda kapitalisasi.',
+    );
+  });
 });
