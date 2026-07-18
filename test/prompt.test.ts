@@ -218,6 +218,95 @@ describe('buildMessages', () => {
     expect(user).toContain('specific fresh launch or event');
   });
 
+  it('system prompt enforces structural variety on openers, closers, and rhythm', () => {
+    expect(SYSTEM_PROMPT).toMatch(/Structural variety/i);
+    expect(SYSTEM_PROMPT).toMatch(/Do NOT open with "Gue" by default/i);
+    expect(SYSTEM_PROMPT).toMatch(/Not every post ends with a question/i);
+    expect(SYSTEM_PROMPT).toMatch(/Vary beat count/i);
+  });
+
+  it('system prompt marks shape template phrases as banned verbatim', () => {
+    expect(SYSTEM_PROMPT).toMatch(/skeletons, NOT scripts/i);
+    expect(SYSTEM_PROMPT).toMatch(/Lo ngalamin juga gak\?/);
+  });
+
+  it('system prompt bans invented production war stories', () => {
+    expect(SYSTEM_PROMPT).toMatch(/NEVER claim you run a production system/i);
+  });
+
+  it('injects opener guard when recent posts open with "Gue"', () => {
+    const gueHeavyPosts: Post[] = [
+      {
+        id: 2,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Gue lagi bikin split bill calculator pake Google Sheets. Ribet.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 1,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Gue notice makin banyak developer nge-drop side project.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, gueHeavyPosts, ['tech']);
+    expect(user).toContain('Structural anti-repeat guard');
+    expect(user).toContain('MUST NOT start with "Gue"');
+  });
+
+  it('injects closer guard when the last two posts end with questions', () => {
+    const questionHeavyPosts: Post[] = [
+      {
+        id: 2,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Split bill di Sheets ternyata ribet. Lo pake apa?',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 1,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Side project rame lagi. Ada yang masih build in public?',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, questionHeavyPosts, ['tech']);
+    expect(user).toContain('MUST end on a statement');
+  });
+
+  it('omits structural guard when the feed is already varied', () => {
+    const variedPosts: Post[] = [
+      {
+        id: 2,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Cursor baru rilis fitur orchestrate. Menarik banget buat multi-agent.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 1,
+        source_query: 'tech',
+        source_post_ids: null,
+        generated_text: 'Split bill pake Sheets ternyata neraka kecil. Ada yang punya template?',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, variedPosts, ['tech']);
+    expect(user).not.toContain('Structural anti-repeat guard');
+  });
+
   it('system prompt instructs line breaks between beats', () => {
     expect(SYSTEM_PROMPT).toMatch(/Line breaks/i);
     expect(SYSTEM_PROMPT).toMatch(/blank line between beats/i);
