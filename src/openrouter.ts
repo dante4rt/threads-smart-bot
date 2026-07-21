@@ -14,6 +14,90 @@ function resolveChatCompletionsUrl(baseUrl: string): string {
   return `${base}/v1/chat/completions`;
 }
 
+/**
+ * Extract the first balanced top-level {...} object from raw text, respecting
+ * braces inside JSON strings. A greedy regex (first "{" to last "}") breaks when
+ * trailing prose itself contains braces (reasoning models echo "{key: value}"
+ * style examples constantly) — this walks brace depth instead.
+ */
+function extractLeadingJsonObject(raw: string): string | null {
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' && depth > 0) {
+      inString = true;
+    } else if (char === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (char === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        return raw.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Some self-hosted endpoints (9router fronting reasoning models like deepseek,
+ * claude-thinking) emit valid JSON followed by trailing prose instead of a clean
+ * body — the built-in JSON parser throws "Unexpected non-whitespace character
+ * after JSON" on that shape. Read as text once, try a direct parse, then fall
+ * back to the leading balanced {...} object in the text.
+ */
+export function parseChatResponseBody(raw: string): ChatResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const candidate = extractLeadingJsonObject(raw);
+    if (!candidate) {
+      throw new Error(
+        `OpenRouter response had no JSON object to parse: ${raw.slice(0, 200)}`,
+      );
+    }
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      throw new Error(
+        `OpenRouter response's leading {...} block was not valid JSON: ${candidate.slice(0, 200)}`,
+      );
+    }
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !Array.isArray((parsed as { choices?: unknown }).choices)
+  ) {
+    const errorMessage = (parsed as { error?: { message?: string } })?.error?.message;
+    throw new Error(
+      errorMessage
+        ? `OpenRouter response has no choices array (gateway error: ${errorMessage})`
+        : `OpenRouter response has no choices array: ${JSON.stringify(parsed).slice(0, 200)}`,
+    );
+  }
+
+  return parsed as ChatResponse;
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -73,7 +157,8 @@ export class OpenRouterClient {
       throw new Error(`OpenRouter API error ${res.status}`);
     }
 
-    const data = (await res.json()) as ChatResponse;
+    const rawBody = await res.text();
+    const data = parseChatResponseBody(rawBody);
     if (!data.choices.length) {
       throw new Error('OpenRouter returned no choices');
     }
