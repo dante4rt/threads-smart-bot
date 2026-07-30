@@ -218,6 +218,95 @@ describe('buildMessages', () => {
     expect(user).toContain('specific fresh launch or event');
   });
 
+  it('flags dev/tooling overuse that AI and crypto guards both miss', () => {
+    // Verbatim shapes from the live feed — these matched neither AI_TOPIC_PATTERN
+    // nor CRYPTO_TOPIC_PATTERN, so the guard reported a healthy mix while every
+    // post was developer inside-baseball.
+    const devHeavyRecentPosts: Post[] = [
+      {
+        id: 1,
+        source_query: 'open source',
+        source_post_ids: null,
+        generated_text:
+          'Repo GitHub lokal sering kali tagline "open source" tapi gak ada LICENSE file. Itu cuma public source.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+      {
+        id: 2,
+        source_query: 'ngoding',
+        source_post_ids: null,
+        generated_text:
+          'Tiap kali clone repo open source dan liat ada Makefile, rasanya lega 30%. Kayaknya projectnya serius.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 3,
+        source_query: 'developer Indonesia',
+        source_post_ids: null,
+        generated_text:
+          'Boilerplate TypeScript yang dipake tim gede biasanya kebanyakan abstraksi buat project kecil.',
+        threads_post_id: 'tp-3',
+        published_at: '2026-01-03T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, devHeavyRecentPosts, ['trending']);
+
+    expect(user).toContain('developer inside-baseball');
+    expect(user).toContain('TOPIC SLOT THIS ROUND');
+    expect(user).toContain('posted too much dev/tooling content lately');
+    expect(user).toContain('NON-DEVELOPER can reply to');
+  });
+
+  it('does not flag dev overuse on a feed of everyday non-dev posts', () => {
+    // Every fixture carries a word that is dev jargon in English but ordinary
+    // vocabulary in Indonesian. Bare-word matching on any of them fires the guard.
+    const everydayRecentPosts: Post[] = [
+      {
+        id: 1,
+        source_query: 'macet Jakarta',
+        source_post_ids: null,
+        // "terminal" = bus terminal, not a shell.
+        generated_text: 'Terminal bus Kampung Rambutan macet parah pagi ini, mending naik KRL.',
+        threads_post_id: 'tp-1',
+        published_at: '2026-01-01T09:00:00Z',
+      },
+      {
+        id: 2,
+        source_query: 'karir',
+        source_post_ids: null,
+        // "framework" = mental model, "runtime" = film length.
+        generated_text: 'Framework berpikir buat ambil keputusan finansial itu lebih guna daripada nonton yang runtime 3 jam.',
+        threads_post_id: 'tp-2',
+        published_at: '2026-01-02T09:00:00Z',
+      },
+      {
+        id: 3,
+        source_query: 'belanja',
+        source_post_ids: null,
+        // "api" = fire, "yarn" = benang, "rust" = warna karat.
+        generated_text: 'Api unggun pas camping kemarin gede banget. Benang yarn warna rust susah dicari.',
+        threads_post_id: 'tp-3',
+        published_at: '2026-01-03T09:00:00Z',
+      },
+      {
+        id: 4,
+        source_query: 'gaji',
+        source_post_ids: null,
+        generated_text: 'Gaji naik 10% tapi harga kos naik 20%. Matematika macam apa ini.',
+        threads_post_id: 'tp-4',
+        published_at: '2026-01-04T09:00:00Z',
+      },
+    ];
+
+    const [, user] = buildMessages(sourcePosts, everydayRecentPosts, ['trending']);
+
+    expect(user).not.toContain('TOPIC SLOT THIS ROUND');
+    expect(user).toContain('0/4 look dev/tooling-coded');
+  });
+
   it('system prompt enforces structural variety on openers, closers, and rhythm', () => {
     expect(SYSTEM_PROMPT).toMatch(/Structural variety/i);
     expect(SYSTEM_PROMPT).toMatch(/Do NOT open with "Gue" by default/i);

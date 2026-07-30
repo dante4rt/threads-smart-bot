@@ -219,6 +219,26 @@ const AI_TOPIC_PATTERN = /\b(ai|chatgpt|openai|claude|gemini|llm|cursor|copilot|
 const CRYPTO_TOPIC_PATTERN =
   /\b(crypto|web3|blockchain|defi|nft|arbitrum|ethereum|solana|tokenomics|yield farming|liquidity pool|dex|amm|smart contract|validator|GameFi|play to earn)\b|\bstaking\s*(eth|sol|crypto|token|coin)/i;
 
+// Dev-tooling posts (LICENSE files, Makefiles, repo hygiene, deploy configs) match
+// neither AI nor CRYPTO, so the guards above see a "mixed" feed while every post is
+// still inside-baseball for developers. This third signal closes that blind spot.
+// Dev-tooling posts match neither AI nor CRYPTO, so both guards read the feed as
+// healthy while every post is inside-baseball. This third signal closes that gap.
+const DEV_TOOL_NAMES =
+  /\b(github|gitlab|repo|repository|makefile|licen[sc]e file|dockerfile|docker|kubernetes|devops|ci\/cd|linter|eslint|typescript|javascript|golang|sdk|refactor|merge request|pull request|open source|codebase|localhost|stack trace|boilerplate|monorepo|npm|pnpm)\b/i;
+
+// Words that are ordinary Indonesian/English on their own — "api" = fire, "terminal" =
+// bus terminal, "rust" = karat, "python" = snake — so each needs a technical qualifier.
+const DEV_QUALIFIED_TERMS =
+  /\b(rest|http|public|private|endpoint)\s+api\b|\bapi\s+(endpoint|key|call|response|docs?|gateway|rate limit)\b|\b(js|web|css|frontend|backend|testing|php|python)\s+framework\b|\breact\s*(js|native|hooks?|component)\b|\bnext\.?js\b|\bnode\.?js\b|\b(bahasa|belajar|script|pake)\s+(python|rust)\b|\bterminal\s+(command|shell|window)\b|\byarn\s+(add|install|build|run)\b|\bdeploy(?:ment)?\s+(ke|to|prod|production|server|staging|pipeline)\b/i;
+
+const DEV_GIT_VERBS = /\bgit\s+(commit|push|clone|rebase|merge)\b|\bunit\s+test(?:s|ing)?\b/i;
+
+const DEV_TOPIC_PATTERN = new RegExp(
+  [DEV_TOOL_NAMES.source, DEV_QUALIFIED_TERMS.source, DEV_GIT_VERBS.source].join('|'),
+  'i',
+);
+
 /**
  * Pull a matchable product/brand name out of AUTHOR_CONTEXT free text, e.g.
  * "I build MakanApa (https://...) — a food discovery app" -> "MakanApa".
@@ -306,6 +326,12 @@ function buildTopicMixSection(recentPosts: Post[]): string {
   const cryptoRatio = cryptoFocusedPosts / recentPosts.length;
   const isCryptoOverused = cryptoFocusedPosts >= 3 || (recentPosts.length >= 5 && cryptoRatio >= 0.4);
 
+  const devFocusedPosts = recentPosts.filter((post) =>
+    DEV_TOPIC_PATTERN.test(post.generated_text),
+  ).length;
+  const devRatio = devFocusedPosts / recentPosts.length;
+  const isDevOverused = devFocusedPosts >= 3 || (recentPosts.length >= 5 && devRatio >= 0.4);
+
   if (isCryptoOverused) {
     return `${cryptoFocusedPosts}/${recentPosts.length} recent posts look crypto/web3-coded (blockchain, DeFi, Arbitrum, etc). Crypto is overused right now. Prefer a non-crypto trend from the source posts unless there is a specific fresh on-chain launch/event.
 
@@ -318,5 +344,11 @@ function buildTopicMixSection(recentPosts: Post[]): string {
 ⛔ TOPIC SLOT THIS ROUND: You have posted too much AI content lately. Pick a NON-AI topic from the source posts — career, money, creator life, local culture, side projects, UMKM, gaji, freelance, anything grounded and non-tech-tool. Only use AI as a topic if there is a specific fresh launch or event in the source posts that is clearly trending. "AI lagi rame" in general is not enough — it must be a named, specific thing.`;
   }
 
-  return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded, ${cryptoFocusedPosts}/${recentPosts.length} look crypto/web3-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;
+  if (isDevOverused) {
+    return `${devFocusedPosts}/${recentPosts.length} recent posts are developer inside-baseball (repos, tooling, deploy, code hygiene). This is the narrowest possible audience on Threads. Most readers scrolling past do not write code and have nothing to reply with.
+
+⛔ TOPIC SLOT THIS ROUND: You have posted too much dev/tooling content lately. Pick a topic a NON-DEVELOPER can reply to — gaji, harga naik, cari kerja, kuliner, macet, belanja online, drama sosmed, side hustle, hiburan, anything from daily life in the source posts. A post about a LICENSE file, a Makefile, a repo, or a deploy config is BANNED this round. If the only angle you can find is technical, frame it around the human consequence (the money, the frustration, the decision), not the tool.`;
+  }
+
+  return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded, ${cryptoFocusedPosts}/${recentPosts.length} look crypto/web3-coded, ${devFocusedPosts}/${recentPosts.length} look dev/tooling-coded. Keep the feed mixed: trend reaction first, niche expertise second.`;
 }
