@@ -114,6 +114,8 @@ export interface Config {
   openrouterModel: string;
   /** Chat-completions base URL. Defaults to OpenRouter; set LLM_BASE_URL to point at a self-hosted/OpenAI-compatible endpoint (e.g. 9router). */
   llmBaseUrl: string;
+  /** Completion budget per call. Reasoning models spend most of it thinking, so this is much larger than the visible post. */
+  llmMaxTokens: number;
 
   searchQueries: string[];
   /**
@@ -187,6 +189,7 @@ export function getConfig(): Config {
     openrouterApiKey:  process.env['LLM_API_KEY'] || requireEnv('OPENROUTER_API_KEY'),
     openrouterModel:   process.env['LLM_MODEL'] || optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
     llmBaseUrl:        optionalEnv('LLM_BASE_URL', 'https://openrouter.ai/api/v1'),
+    llmMaxTokens:      parsePositiveInt(optionalEnv('LLM_MAX_TOKENS', '8000'), 'LLM_MAX_TOKENS'),
 
     searchQueries: optionalEnv(
       'SEARCH_QUERIES',

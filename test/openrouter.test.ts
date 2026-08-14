@@ -1,7 +1,8 @@
 // test/openrouter.test.ts
 
-import { describe, expect, it } from 'vitest';
-import { parseChatResponseBody } from '../src/openrouter.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { OpenRouterClient, TruncatedCompletionError, parseChatResponseBody } from '../src/openrouter.js';
+import type { Config } from '../src/config.js';
 
 const cleanBody = JSON.stringify({
   id: 'gen-1',
@@ -57,5 +58,73 @@ describe('parseChatResponseBody', () => {
     expect(() => parseChatResponseBody('<html>502 Bad Gateway</html>')).toThrow(
       /no JSON object to parse/,
     );
+  });
+});
+
+const testConfig = {
+  openrouterApiKey: 'k',
+  openrouterModel: 'test/reasoner',
+  llmBaseUrl: 'http://localhost:1234/v1',
+  llmMaxTokens: 1000,
+} as Config;
+
+function respond(body: unknown): Response {
+  return { ok: true, status: 200, text: async () => JSON.stringify(body) } as Response;
+}
+
+const truncated = respond({
+  id: 'gen-1',
+  choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'length' }],
+});
+
+function requestedMaxTokens(call: unknown[]): number {
+  return JSON.parse((call[1] as { body: string }).body).max_tokens;
+}
+
+describe('OpenRouterClient.chat budget escalation', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('retries with a doubled budget when the model is truncated before any output', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(truncated)
+      .mockResolvedValueOnce(
+        respond({
+          id: 'gen-2',
+          choices: [{ message: { role: 'assistant', content: 'final post' }, finish_reason: 'stop' }],
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new OpenRouterClient(testConfig).chat([{ role: 'user', content: 'hi' }])).resolves.toBe(
+      'final post',
+    );
+    expect(requestedMaxTokens(fetchMock.mock.calls[0])).toBe(1000);
+    expect(requestedMaxTokens(fetchMock.mock.calls[1])).toBe(2000);
+  });
+
+  it('gives up after bounded escalations instead of looping', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(truncated);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      new OpenRouterClient(testConfig).chat([{ role: 'user', content: 'hi' }]),
+    ).rejects.toThrow(TruncatedCompletionError);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not escalate when the failure is not a budget truncation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      respond({
+        id: 'gen-3',
+        choices: [{ message: { role: 'assistant', content: '' }, finish_reason: 'content_filter' }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      new OpenRouterClient(testConfig).chat([{ role: 'user', content: 'hi' }]),
+    ).rejects.toThrow(/content_filter/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

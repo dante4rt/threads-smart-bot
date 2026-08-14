@@ -119,13 +119,53 @@ export interface ChatResponse {
   };
 }
 
+/** A reasoning model that burns its whole budget thinking returns empty content with this reason. */
+export class TruncatedCompletionError extends Error {}
+
+/** Extra budget attempts after the first, each doubling. Bounded so a model that never finishes fails fast. */
+const MAX_BUDGET_ESCALATIONS = 2;
+const MAX_TOKEN_BUDGET = 32000;
+
 export class OpenRouterClient {
   constructor(private readonly config: Config) {}
 
-  // Default sized for reasoning models (e.g. deepseek-v4-pro via 9router): they spend
-  // tokens thinking before writing the final answer, so a budget tuned for a
-  // non-reasoning model cuts them off mid-thought and returns empty content.
-  async chat(messages: ChatMessage[], maxTokens = 2000, temperature = 0.85): Promise<string> {
+  /**
+   * Retries internally on finish_reason=length with a doubled budget — withRetry
+   * would resend the identical budget and fail identically three times.
+   */
+  async chat(
+    messages: ChatMessage[],
+    maxTokens = this.config.llmMaxTokens,
+    temperature = 0.85,
+  ): Promise<string> {
+    let budget = Math.min(maxTokens, MAX_TOKEN_BUDGET);
+
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.request(messages, budget, temperature);
+      } catch (err) {
+        const canEscalate =
+          err instanceof TruncatedCompletionError &&
+          attempt < MAX_BUDGET_ESCALATIONS &&
+          budget < MAX_TOKEN_BUDGET;
+        if (!canEscalate) throw err;
+
+        const nextBudget = Math.min(budget * 2, MAX_TOKEN_BUDGET);
+        logger.warn('Completion truncated before any output, raising token budget', {
+          model: this.config.openrouterModel,
+          fromMaxTokens: budget,
+          toMaxTokens: nextBudget,
+        });
+        budget = nextBudget;
+      }
+    }
+  }
+
+  private async request(
+    messages: ChatMessage[],
+    maxTokens: number,
+    temperature: number,
+  ): Promise<string> {
     let res: Response;
     try {
       res = await fetch(resolveChatCompletionsUrl(this.config.llmBaseUrl), {
@@ -166,12 +206,14 @@ export class OpenRouterClient {
     const content = data.choices[0]?.message?.content;
     if (!content) {
       const finishReason = data.choices[0]?.finish_reason;
-      // finish_reason "length" means max_tokens ran out — for reasoning models that
-      // "think" before writing the final answer, that means it never got there.
-      const hint = finishReason === 'length'
-        ? ' (finish_reason=length — increase max_tokens, the model likely ran out of budget mid-reasoning)'
-        : finishReason ? ` (finish_reason=${finishReason})` : '';
-      throw new Error(`OpenRouter returned empty content${hint}`);
+      if (finishReason === 'length') {
+        throw new TruncatedCompletionError(
+          `OpenRouter returned empty content (finish_reason=length at max_tokens=${maxTokens} — the model ran out of budget mid-reasoning)`,
+        );
+      }
+      throw new Error(
+        `OpenRouter returned empty content${finishReason ? ` (finish_reason=${finishReason})` : ''}`,
+      );
     }
 
     logger.debug('OpenRouter response', {
