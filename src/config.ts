@@ -30,6 +30,18 @@ function parseTopicList(value: string): string[] {
     });
 }
 
+// An invalid TIMEZONE half-breaks the bot instead of stopping it: node-cron
+// throws (killing the scheduler) while Intl falls back to UTC, silently shifting
+// every post and the day-of-week category rotation. Fail at load instead.
+function parseTimezone(val: string): string {
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: val });
+  } catch {
+    throw new ConfigError(`TIMEZONE is not a valid IANA time zone: "${val}"`);
+  }
+  return val;
+}
+
 function parsePositiveInt(val: string, key: string): number {
   const parsed = Number.parseInt(val, 10);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -208,12 +220,12 @@ export function getConfig(): Config {
       'MAX_SOURCE_POSTS_PER_QUERY',
     ),
 
-    postTimes: optionalEnv('POST_TIMES', '12:15,19:30')
+    postTimes: optionalEnv('POST_TIMES', '13:30')
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),
 
-    timezone: optionalEnv('TIMEZONE', 'Asia/Jakarta'),
+    timezone: parseTimezone(optionalEnv('TIMEZONE', 'Asia/Jakarta')),
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     authorContext: optionalEnv('AUTHOR_CONTEXT', ''),
