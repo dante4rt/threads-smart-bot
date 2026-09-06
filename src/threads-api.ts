@@ -24,8 +24,32 @@ export interface SearchResult {
   data: ThreadsPost[];
 }
 
+interface InsightsEntry {
+  name: string;
+  /** Lifetime metrics (views, likes, replies, reposts, quotes) use this shape. */
+  values?: Array<{ value?: number }>;
+  /** Total-value metrics use this one. Both are live in the Threads API. */
+  total_value?: { value?: number };
+}
+
 interface InsightsResult {
-  data?: Array<{ name: string; total_value?: { value?: number } }>;
+  data?: InsightsEntry[];
+}
+
+/**
+ * Read one metric across both insights response shapes. Verified against the
+ * live API on 2026-09-06: post-level metrics come back as
+ * `values: [{value: 15}]`, not `total_value`. Returns undefined when neither
+ * shape yields a number, so the caller can flag it instead of persisting a
+ * fake zero.
+ */
+function readMetricValue(entry: InsightsEntry): number | undefined {
+  const fromValues = entry.values?.[0]?.value;
+  if (typeof fromValues === 'number') return fromValues;
+  if (typeof entry.total_value?.value === 'number') return entry.total_value.value;
+  // Both shapes omit the field entirely when the count is zero.
+  if (entry.values !== undefined || entry.total_value !== undefined) return 0;
+  return undefined;
 }
 
 export interface MediaContainerResult {
@@ -317,25 +341,27 @@ export class ThreadsClient {
     );
 
     const metrics: PostMetrics = { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 };
-    const seen = new Set<string>();
+    const unreadable: string[] = [];
 
     for (const entry of result.data ?? []) {
-      // Total-value metrics carry the count in total_value.value; the API omits
-      // the field entirely when the count is zero. hasOwn, not `in`, so a
-      // payload naming a prototype key can't write outside the metric set.
-      if (Object.hasOwn(metrics, entry.name)) {
-        metrics[entry.name as keyof PostMetrics] = entry.total_value?.value ?? 0;
-        seen.add(entry.name);
+      // hasOwn, not `in`, so a payload naming a prototype key can't write
+      // outside the metric set.
+      if (!Object.hasOwn(metrics, entry.name)) continue;
+
+      const value = readMetricValue(entry);
+      if (value === undefined) {
+        unreadable.push(entry.name);
+        continue;
       }
+      metrics[entry.name as keyof PostMetrics] = value;
     }
 
-    // All-zero metrics are indistinguishable from a response we failed to parse,
-    // and they get persisted and ranked either way. Say so.
-    const missing = Object.keys(metrics).filter((m) => !seen.has(m));
-    if (missing.length > 0) {
-      logger.warn('Insights response missing requested metrics, defaulting them to 0', {
+    // A zero we failed to parse is indistinguishable from a real zero once it is
+    // persisted, and the prompt ranks posts on it either way. Say so loudly.
+    if (unreadable.length > 0) {
+      logger.warn('Insights metrics present but unparseable, defaulting them to 0', {
         mediaId,
-        missing,
+        unreadable,
       });
     }
 

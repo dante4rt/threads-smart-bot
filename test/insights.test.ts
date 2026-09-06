@@ -276,3 +276,66 @@ describe('refreshRecentMetrics on a DB predating the engagement columns', () => 
     expect(client.getMediaInsights).not.toHaveBeenCalled();
   });
 });
+
+describe('getMediaInsights against the real API response shape', () => {
+  const stub = (payload: unknown): ThreadsClient => {
+    const db = memoryDb();
+    db.prepare(
+      'INSERT INTO tokens (id, access_token, refreshed_at, expires_at) VALUES (1, ?, ?, ?)',
+    ).run('tok', nowIso(), nowIso(30 * 24 * HOUR));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })),
+    );
+    return new ThreadsClient(
+      {
+        threadsAppId: 'id',
+        threadsAppSecret: 'secret',
+        threadsUserId: '1234567890',
+        threadsAccessToken: 'tok',
+        threadsRedirectUri: 'https://localhost/callback',
+        dbPath: ':memory:',
+      },
+      db,
+    );
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads the lifetime values[] shape the live API actually returns', async () => {
+    // Captured verbatim from GET /18120525521489407/insights on 2026-09-06.
+    // The post has 15 views; a total_value-only parser reported 0.
+    const c = stub({
+      data: [
+        { id: 'x/insights/views/lifetime', name: 'views', period: 'lifetime', values: [{ value: 15 }] },
+        { id: 'x/insights/likes/lifetime', name: 'likes', period: 'lifetime', values: [{ value: 0 }] },
+        { id: 'x/insights/thread_replies/lifetime', name: 'replies', period: 'lifetime', values: [{ value: 2 }] },
+        { id: 'x/insights/reposts/lifetime', name: 'reposts', period: 'lifetime', values: [{ value: 0 }] },
+        { id: 'x/insights/quotes/lifetime', name: 'quotes', period: 'lifetime', values: [{ value: 1 }] },
+      ],
+    });
+
+    expect(await c.getMediaInsights('18120525521489407')).toEqual({
+      views: 15, likes: 0, replies: 2, reposts: 0, quotes: 1,
+    });
+  });
+
+  it('still reads the total_value shape', async () => {
+    const c = stub({ data: [{ name: 'views', total_value: { value: 267 } }] });
+    expect((await c.getMediaInsights('tp-1')).views).toBe(267);
+  });
+
+  it('prefers values[] when a payload somehow carries both', async () => {
+    const c = stub({
+      data: [{ name: 'views', values: [{ value: 15 }], total_value: { value: 0 } }],
+    });
+    expect((await c.getMediaInsights('tp-1')).views).toBe(15);
+  });
+
+  it('treats a present-but-empty shape as a real zero', async () => {
+    const c = stub({ data: [{ name: 'views', values: [{}] }, { name: 'likes', total_value: {} }] });
+    const m = await c.getMediaInsights('tp-1');
+    expect(m.views).toBe(0);
+    expect(m.likes).toBe(0);
+  });
+});
