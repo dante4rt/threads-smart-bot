@@ -88,7 +88,7 @@ describe('buildMessages', () => {
 
   it('system prompt enforces compact character targets', () => {
     expect(SYSTEM_PROMPT).toContain('400');
-    expect(SYSTEM_PROMPT).toContain('60-280');
+    expect(SYSTEM_PROMPT).toContain('60-160');
   });
 
   it('system prompt includes shareability and reply-engagement goals', () => {
@@ -148,9 +148,9 @@ describe('buildMessages', () => {
     expect(SYSTEM_PROMPT).toMatch(/NEVER state a price/i);
   });
 
-  it('system prompt bans inventing locations and FnB settings', () => {
+  it('system prompt bans inventing locations and eating scenes', () => {
     expect(SYSTEM_PROMPT).toMatch(/NEVER name a city/i);
-    expect(SYSTEM_PROMPT).toMatch(/FnB/);
+    expect(SYSTEM_PROMPT).toMatch(/eating scene/i);
     expect(SYSTEM_PROMPT).toMatch(/warung kopi/i);
   });
 
@@ -310,7 +310,7 @@ describe('buildMessages', () => {
   it('system prompt enforces structural variety on openers, closers, and rhythm', () => {
     expect(SYSTEM_PROMPT).toMatch(/Structural variety/i);
     expect(SYSTEM_PROMPT).toMatch(/Do NOT open with "Gue" by default/i);
-    expect(SYSTEM_PROMPT).toMatch(/Not every post ends with a question/i);
+    expect(SYSTEM_PROMPT).toMatch(/never use the same kind twice in a row/i);
     expect(SYSTEM_PROMPT).toMatch(/Vary beat count/i);
   });
 
@@ -544,5 +544,28 @@ describe('performance feedback section', () => {
     const section = user.slice(user.indexOf('actually performed'));
     expect(section).toContain('winner post');
     expect(section).not.toContain('never fetched');
+  });
+});
+
+describe('SYSTEM_PROMPT shape contract', () => {
+  it('offers the two shapes that measurably outperformed on this account', () => {
+    expect(SYSTEM_PROMPT).toContain('METAPHOR');
+    expect(SYSTEM_PROMPT).toContain('RECEIPT');
+  });
+
+  it('targets short posts, since the long ones died', () => {
+    expect(SYSTEM_PROMPT).toContain('60-160');
+  });
+
+  it('bans the setup-turn-punchline default rather than banning questions', () => {
+    expect(SYSTEM_PROMPT).toContain('setup, turn, punchline');
+    // Generic fishing stays banned; anchored questions are explicitly allowed.
+    expect(SYSTEM_PROMPT).toContain('gimana menurut lo?');
+    expect(SYSTEM_PROMPT).toContain('a stranger can actually answer');
+  });
+
+  it('allows food as a topic while still banning invented eating scenes', () => {
+    expect(SYSTEM_PROMPT).toContain('Food is allowed as a TOPIC');
+    expect(SYSTEM_PROMPT).toContain('never "kemarin gue makan di warteg deket rumah"');
   });
 });
