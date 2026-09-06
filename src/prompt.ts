@@ -155,7 +155,10 @@ const MIN_SCORED_POSTS = 4;
  * anything.
  */
 function buildPerformanceSection(recentPosts: Post[]): string {
-  const scored = recentPosts.filter((p) => typeof p.views === 'number' && p.views !== null);
+  // Gate on the fetch timestamp, not on views: a post whose insights call
+  // returned zeros is a real data point, one never fetched is not, and filtering
+  // on views alone cannot tell them apart.
+  const scored = recentPosts.filter((p) => p.metrics_fetched_at !== null);
   if (scored.length < MIN_SCORED_POSTS) return '';
 
   const engagement = (p: Post): number =>

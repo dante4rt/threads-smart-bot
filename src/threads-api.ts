@@ -317,13 +317,28 @@ export class ThreadsClient {
     );
 
     const metrics: PostMetrics = { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 };
+    const seen = new Set<string>();
+
     for (const entry of result.data ?? []) {
       // Total-value metrics carry the count in total_value.value; the API omits
-      // the field entirely when the count is zero.
-      if (entry.name in metrics) {
+      // the field entirely when the count is zero. hasOwn, not `in`, so a
+      // payload naming a prototype key can't write outside the metric set.
+      if (Object.hasOwn(metrics, entry.name)) {
         metrics[entry.name as keyof PostMetrics] = entry.total_value?.value ?? 0;
+        seen.add(entry.name);
       }
     }
+
+    // All-zero metrics are indistinguishable from a response we failed to parse,
+    // and they get persisted and ranked either way. Say so.
+    const missing = Object.keys(metrics).filter((m) => !seen.has(m));
+    if (missing.length > 0) {
+      logger.warn('Insights response missing requested metrics, defaulting them to 0', {
+        mediaId,
+        missing,
+      });
+    }
+
     return metrics;
   }
 

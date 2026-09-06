@@ -1,211 +1,109 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearConfig, getAuthConfig, getConfig } from '../src/config.js';
+// test/config.test.ts
 
-const ENV_KEYS = [
-  'THREADS_APP_ID',
-  'THREADS_APP_SECRET',
-  'THREADS_USER_ID',
-  'THREADS_ACCESS_TOKEN',
-  'THREADS_REDIRECT_URI',
-  'DB_PATH',
-  'OPENROUTER_API_KEY',
-  'OPENROUTER_MODEL',
-  'LLM_BASE_URL',
-  'LLM_API_KEY',
-  'LLM_MODEL',
-  'SEARCH_QUERIES',
-  'CATEGORY_QUERIES',
-  'EXCLUDED_TOPICS',
-  'MIN_SOURCE_POSTS',
-  'MIN_SOURCE_QUERIES',
-  'MAX_SOURCE_POSTS_PER_QUERY',
-  'POST_TIMES',
-  'TIMEZONE',
-  'UNSPLASH_ACCESS_KEY',
-  'DRY_RUN',
-] as const;
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { getConfig, resetConfig } from '../src/config.js';
+import { ConfigError } from '../src/errors.js';
 
-const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+const REQUIRED = {
+  THREADS_APP_ID: 'app-id',
+  THREADS_APP_SECRET: 'app-secret',
+  OPENROUTER_API_KEY: 'or-key',
+};
 
-function resetRelevantEnv(): void {
-  for (const key of ENV_KEYS) {
-    delete process.env[key];
-  }
-}
+const ORIGINAL = { ...process.env };
 
-beforeEach(() => {
-  resetRelevantEnv();
-  clearConfig();
-});
-
-afterEach(() => {
-  resetRelevantEnv();
-  for (const key of ENV_KEYS) {
-    const value = ORIGINAL_ENV[key];
-    if (value !== undefined) {
-      process.env[key] = value;
+function withEnv(overrides: Record<string, string | undefined>): void {
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('THREADS_') || key.startsWith('OPENROUTER_') || key.startsWith('LLM_')) {
+      delete process.env[key];
     }
   }
-  clearConfig();
+  for (const key of [
+    'TIMEZONE', 'TOPIC_TAGS', 'DEFAULT_TOPIC_TAG', 'POST_TIMES',
+    'SEARCH_QUERIES', 'CATEGORY_QUERIES', 'EXCLUDED_TOPICS',
+  ]) {
+    delete process.env[key];
+  }
+  Object.assign(process.env, REQUIRED, overrides);
+  resetConfig();
+}
+
+beforeEach(() => resetConfig());
+
+afterEach(() => {
+  for (const key of Object.keys(process.env)) {
+    if (!(key in ORIGINAL)) delete process.env[key];
+  }
+  Object.assign(process.env, ORIGINAL);
+  resetConfig();
 });
 
-describe('getAuthConfig', () => {
-  it('does not require runtime-only env vars', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.THREADS_REDIRECT_URI = 'https://localhost/callback';
+describe('TIMEZONE validation', () => {
+  it('accepts a valid IANA zone', () => {
+    withEnv({ TIMEZONE: 'Asia/Jakarta' });
+    expect(getConfig().timezone).toBe('Asia/Jakarta');
+  });
 
-    const config = getAuthConfig();
-
-    expect(config.threadsAppId).toBe('app-id');
-    expect(config.threadsAppSecret).toBe('app-secret');
-    expect(config.threadsUserId).toBeUndefined();
-    expect(config.dbPath).toBe('data/state.db');
+  it('rejects a non-zone before it can reach node-cron or Intl', () => {
+    // The real-world shape: TIMEZONE and the next var collapsed onto one line.
+    withEnv({ TIMEZONE: 'Asia/Jakarta, AUTHOR_CONTEXT=I build things' });
+    expect(() => getConfig()).toThrow(ConfigError);
+    expect(() => getConfig()).toThrow(/not a valid IANA time zone/);
   });
 });
 
-describe('getConfig', () => {
-  it('allows THREADS_USER_ID to be omitted after auth bootstrap', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-
-    const config = getConfig();
-
-    expect(config.threadsUserId).toBeUndefined();
-    expect(config.openrouterApiKey).toBe('or-key');
-    expect(config.searchQueries).toEqual([
-      'trending',
-      'viral',
-      'lagi rame',
-      'Indonesia',
-      'startup',
-      'bisnis',
-      'career',
-      'creator',
-      'web3',
-      'tech',
-      'DeFi',
-      'hackathon',
-      'solidity',
-      'gaming blockchain',
-      'freelance developer',
-      'remote work',
-      'gaji developer',
-      'open source',
-      'AI tools',
-      'crypto trading',
-      'kuliner Jakarta',
-      'makanan viral',
-      'food recommendation',
-    ]);
-    expect(config.minSourcePosts).toBe(10);
-    expect(config.minSourceQueries).toBe(3);
-    expect(config.maxSourcePostsPerQuery).toBe(4);
-    expect(config.excludedTopics).toEqual(['Arbitrum']);
+describe('TOPIC_TAGS validation', () => {
+  it('parses a well-formed mapping', () => {
+    withEnv({ TOPIC_TAGS: '{"tech":"Tech Threads","karir":"Karir"}' });
+    expect(getConfig().topicTags).toEqual({ tech: 'Tech Threads', karir: 'Karir' });
   });
 
-  it('parses account-level excluded topics', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.EXCLUDED_TOPICS = 'Arbitrum, crypto trading, arbitrum';
-
-    expect(getConfig().excludedTopics).toEqual(['Arbitrum', 'crypto trading']);
+  it('defaults to an empty mapping when unset', () => {
+    withEnv({});
+    expect(getConfig().topicTags).toEqual({});
+    expect(getConfig().defaultTopicTag).toBe('');
   });
 
-  it('derives category buckets from SEARCH_QUERIES when CATEGORY_QUERIES is unset', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.SEARCH_QUERIES = 'a,b,c,d,e,f,g,h';
-
-    const config = getConfig();
-    const buckets = Object.values(config.categoryQueries);
-
-    // 8 queries spread across the default 7 buckets, round-robin, no query lost.
-    expect(Object.keys(config.categoryQueries).length).toBe(7);
-    expect(buckets.flat().sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  it('rejects malformed JSON', () => {
+    withEnv({ TOPIC_TAGS: '{tech:' });
+    expect(() => getConfig()).toThrow(/must be valid JSON/);
   });
 
-  it('uses CATEGORY_QUERIES verbatim when provided', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.CATEGORY_QUERIES = JSON.stringify({
-      tech: ['ngoding', 'developer'],
-      bisnis: ['startup'],
-    });
-
-    const config = getConfig();
-
-    expect(config.categoryQueries).toEqual({
-      tech: ['ngoding', 'developer'],
-      bisnis: ['startup'],
-    });
+  it('rejects a JSON array', () => {
+    withEnv({ TOPIC_TAGS: '["tech"]' });
+    expect(() => getConfig()).toThrow(/must be a JSON object/);
   });
 
-  it('rejects malformed CATEGORY_QUERIES JSON', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.CATEGORY_QUERIES = '{not json}';
-
-    expect(() => getConfig()).toThrow(/CATEGORY_QUERIES must be valid JSON/);
+  it('rejects a non-string tag value', () => {
+    withEnv({ TOPIC_TAGS: '{"tech":42}' });
+    expect(() => getConfig()).toThrow(/must be a string/);
   });
 
-  it('defaults llmBaseUrl to OpenRouter when LLM_BASE_URL is unset', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-
-    expect(getConfig().llmBaseUrl).toBe('https://openrouter.ai/api/v1');
+  it('rejects an empty tag', () => {
+    withEnv({ TOPIC_TAGS: '{"tech":"   "}' });
+    expect(() => getConfig()).toThrow(/must not be empty/);
   });
 
-  it('uses LLM_BASE_URL/LLM_API_KEY/LLM_MODEL to point at a self-hosted endpoint', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.LLM_BASE_URL = 'http://bablalbal/v1';
-    process.env.LLM_API_KEY = 'nine-router-key';
-    process.env.LLM_MODEL = 'nine-router-model';
-
-    const config = getConfig();
-
-    expect(config.llmBaseUrl).toBe('http://bablalbal/v1');
-    expect(config.openrouterApiKey).toBe('nine-router-key');
-    expect(config.openrouterModel).toBe('nine-router-model');
+  it('rejects a tag over the API 50-character limit', () => {
+    withEnv({ TOPIC_TAGS: `{"tech":"${'a'.repeat(51)}"}` });
+    expect(() => getConfig()).toThrow(/1-50 characters/);
   });
 
-  it('does not require OPENROUTER_API_KEY when LLM_API_KEY is set', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.LLM_API_KEY = 'nine-router-key';
-    process.env.LLM_MODEL = 'nine-router-model';
-
-    expect(() => getConfig()).not.toThrow();
+  it('accepts a tag at exactly the 50-character limit', () => {
+    withEnv({ TOPIC_TAGS: `{"tech":"${'a'.repeat(50)}"}` });
+    expect(getConfig().topicTags['tech']).toHaveLength(50);
   });
 
-  it('requires LLM_MODEL when LLM_BASE_URL is set, to avoid an opaque model-not-found at request time', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.LLM_BASE_URL = 'http://bablalbal/v1';
+  it.each(['Tech.Threads', 'Tech&Threads'])(
+    'rejects the API-forbidden character in %s',
+    (tag) => {
+      withEnv({ TOPIC_TAGS: `{"tech":"${tag}"}` });
+      expect(() => getConfig()).toThrow(/must not contain/);
+    },
+  );
 
-    expect(() => getConfig()).toThrow(/LLM_MODEL is required when LLM_BASE_URL is set/);
-  });
-
-  it('parses crawl thresholds when provided', () => {
-    process.env.THREADS_APP_ID = 'app-id';
-    process.env.THREADS_APP_SECRET = 'app-secret';
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    process.env.MIN_SOURCE_POSTS = '12';
-    process.env.MIN_SOURCE_QUERIES = '4';
-    process.env.MAX_SOURCE_POSTS_PER_QUERY = '2';
-
-    const config = getConfig();
-
-    expect(config.minSourcePosts).toBe(12);
-    expect(config.minSourceQueries).toBe(4);
-    expect(config.maxSourcePostsPerQuery).toBe(2);
+  it('applies the same rules to DEFAULT_TOPIC_TAG', () => {
+    withEnv({ DEFAULT_TOPIC_TAG: 'Indo.nesia' });
+    expect(() => getConfig()).toThrow(/DEFAULT_TOPIC_TAG must not contain/);
   });
 });

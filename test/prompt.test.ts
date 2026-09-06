@@ -531,7 +531,11 @@ describe('performance feedback section', () => {
   it('excludes posts whose metrics have never been fetched from the ranking', () => {
     // 4 scored posts clear the threshold, so the section renders; the unscored
     // one must still be absent from it rather than ranked as a zero.
-    const unscored: Post = { ...scoredPost(9, 'never fetched', 0, 0, 0), views: null };
+    const unscored: Post = {
+      ...scoredPost(9, 'never fetched', 0, 0, 0),
+      views: null,
+      metrics_fetched_at: null,
+    };
     const posts = [
       unscored,
       scoredPost(1, 'dead post', 9, 0, 0),

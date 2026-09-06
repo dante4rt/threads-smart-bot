@@ -20,6 +20,7 @@ import { generateGroundedPost } from './fact-check.js';
 import { findImage } from './media.js';
 import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
+import type { Post } from './db.js';
 import type { ThreadsPost } from './threads-api.js';
 
 const MAX_POST_CHARS = 450;
@@ -200,7 +201,15 @@ export async function refreshRecentMetrics(
   threadsClient: Pick<ThreadsClient, 'getMediaInsights'>,
   db: Database,
 ): Promise<number> {
-  const posts = getPostsNeedingMetrics(db);
+  let posts: Post[];
+  try {
+    posts = getPostsNeedingMetrics(db);
+  } catch (err) {
+    // e.g. a DB predating the engagement columns. Never worth failing a run over.
+    logger.warn('Could not list posts needing metrics', { error: (err as Error).message });
+    return 0;
+  }
+
   let updated = 0;
 
   for (const post of posts) {

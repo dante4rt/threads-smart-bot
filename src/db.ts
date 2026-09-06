@@ -60,7 +60,8 @@ export function resetDb(): void {
   _db = undefined;
 }
 
-function migrate(db: Database.Database): void {
+/** Idempotent schema setup. Exported so tests exercise the real migration. */
+export function migrate(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS posts (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,25 +267,30 @@ export function updatePostMetrics(
 
 /**
  * Published posts from the last `days` whose metrics are worth refreshing.
- * Engagement keeps accruing for a few days, so recent posts are refetched even
- * when they already have numbers.
+ * Engagement keeps accruing for a few days, so a post is refetched even when it
+ * already has numbers — but not if it was fetched within `staleAfterHours`,
+ * since these calls run immediately before the publish call and a 429 there
+ * costs the run.
  */
 export function getPostsNeedingMetrics(
   db: Database.Database,
   days = 7,
   limit = 20,
+  staleAfterHours = 6,
 ): Post[] {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const staleBefore = new Date(Date.now() - staleAfterHours * 60 * 60 * 1000).toISOString();
   return db
     .prepare(`
       SELECT * FROM posts
        WHERE threads_post_id IS NOT NULL
          AND published_at IS NOT NULL
          AND published_at >= ?
+         AND (metrics_fetched_at IS NULL OR metrics_fetched_at < ?)
        ORDER BY id DESC
        LIMIT ?
     `)
-    .all(cutoff, limit) as Post[];
+    .all(cutoff, staleBefore, limit) as Post[];
 }
 
 // ── Run helpers ──────────────────────────────────────────────────────────────

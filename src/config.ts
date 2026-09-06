@@ -1,6 +1,7 @@
 // src/config.ts — env loading and validation
 
 import { ConfigError } from './errors.js';
+import { logger } from './logger.js';
 
 function requireEnv(key: string): string {
   const val = process.env[key];
@@ -291,12 +292,33 @@ export function getConfig(): Config {
     ? parseCategoryQueries(rawCategoryQueries)
     : deriveCategoryQueries(_config.searchQueries);
 
+  // A typo'd category key silently degrades every post to DEFAULT_TOPIC_TAG.
+  // Not fatal — derived categories legitimately won't match hand-written keys.
+  const unknownTagCategories = Object.keys(_config.topicTags).filter(
+    (category) => !(category in _config!.categoryQueries),
+  );
+  if (unknownTagCategories.length > 0) {
+    logger.warn('TOPIC_TAGS names categories that do not exist in CATEGORY_QUERIES', {
+      unknownTagCategories,
+      knownCategories: Object.keys(_config.categoryQueries),
+    });
+  }
+
   return _config;
 }
 
 /**
  * Override config (used in tests).
  */
+/**
+ * Drop the cached config so the next getConfig() re-reads process.env.
+ * Used in tests; the caching is what makes env changes invisible otherwise.
+ */
+export function resetConfig(): void {
+  _config = undefined;
+  _authConfig = undefined;
+}
+
 export function setConfig(cfg: Config): void {
   _authConfig = {
     threadsAppId: cfg.threadsAppId,
