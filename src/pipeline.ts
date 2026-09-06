@@ -188,6 +188,36 @@ export function buildCrawlQueryPool(
   return crawlQueries;
 }
 
+/**
+ * Pick the topic tag for a post from the category that contributed most of the
+ * successful crawl queries. Ties break on category name so the same crawl always
+ * yields the same tag. Returns '' when nothing matches and no default is set.
+ */
+export function resolveTopicTag(
+  categoryQueries: Record<string, string[]>,
+  successfulQueries: string[],
+  topicTags: Record<string, string>,
+  defaultTopicTag = '',
+): string {
+  const normalized = new Set(successfulQueries.map((q) => q.trim().toLowerCase()));
+
+  let bestCategory = '';
+  let bestHits = 0;
+  for (const category of Object.keys(categoryQueries).sort()) {
+    if (!topicTags[category]) continue;
+    const hits = (categoryQueries[category] ?? []).filter((q) =>
+      normalized.has(q.trim().toLowerCase()),
+    ).length;
+    if (hits > bestHits) {
+      bestHits = hits;
+      bestCategory = category;
+    }
+  }
+
+  if (bestCategory) return topicTags[bestCategory] ?? defaultTopicTag;
+  return defaultTopicTag;
+}
+
 export async function collectSourcePosts(
   searchQueries: string[],
   minSourcePosts: number,
@@ -474,9 +504,17 @@ export async function runPipeline(
     // Find optional Unsplash image (deduped against DB)
     const imageUrl = await findImage(safeText, config.unsplashAccessKey, db);
 
+    const topicTag = resolveTopicTag(
+      config.categoryQueries,
+      successfulQueries,
+      config.topicTags,
+      config.defaultTopicTag,
+    );
+    logger.info('Publish stage', { topicTag: topicTag || null, hasImage: Boolean(imageUrl) });
+
     // Two-step publish
     const containerId = await withRetry(() =>
-      threadsClient.createMediaContainer(safeText, imageUrl),
+      threadsClient.createMediaContainer(safeText, imageUrl, topicTag || undefined),
     );
 
     // Small delay recommended by Threads API before publishing

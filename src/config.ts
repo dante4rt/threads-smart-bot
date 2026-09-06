@@ -42,6 +42,43 @@ function parseTimezone(val: string): string {
   return val;
 }
 
+// Threads rejects tags outside 1-50 chars or containing "." / "&". Catching it
+// here beats a 400 at publish time, after the post is already crafted.
+function parseTopicTag(value: string, key: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.length > 50) throw new ConfigError(`${key} must be 1-50 characters`);
+  if (/[.&]/.test(trimmed)) throw new ConfigError(`${key} must not contain "." or "&"`);
+  return trimmed;
+}
+
+function parseTopicTags(raw: string): Record<string, string> {
+  if (!raw.trim()) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConfigError('TOPIC_TAGS must be valid JSON mapping category name to topic tag');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new ConfigError('TOPIC_TAGS must be a JSON object of category -> tag');
+  }
+
+  const result: Record<string, string> = {};
+  for (const [category, tag] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof tag !== 'string') {
+      throw new ConfigError(`TOPIC_TAGS["${category}"] must be a string`);
+    }
+    const trimmed = parseTopicTag(tag, `TOPIC_TAGS["${category}"]`);
+    if (!trimmed) {
+      throw new ConfigError(`TOPIC_TAGS["${category}"] must not be empty`);
+    }
+    result[category] = trimmed;
+  }
+  return result;
+}
+
 function parsePositiveInt(val: string, key: string): number {
   const parsed = Number.parseInt(val, 10);
   if (!Number.isInteger(parsed) || parsed < 1) {
@@ -139,8 +176,17 @@ export interface Config {
   minSourcePosts: number;
   minSourceQueries: number;
   maxSourcePostsPerQuery: number;
-  postTimes: string[]; // e.g. ['12:15', '19:30']
+  postTimes: string[]; // e.g. ['13:30', '20:15']
   timezone: string;
+
+  /**
+   * Category name -> Threads topic tag. The post is tagged with the tag for the
+   * category that contributed most of the crawl, which is how it reaches the
+   * topic feeds rather than only followers. Empty means publish untagged.
+   */
+  topicTags: Record<string, string>;
+  /** Tag used when no category matches. Empty means publish untagged. */
+  defaultTopicTag: string;
 
   unsplashAccessKey: string | undefined;
   authorContext: string;
@@ -226,6 +272,9 @@ export function getConfig(): Config {
       .filter(Boolean),
 
     timezone: parseTimezone(optionalEnv('TIMEZONE', 'Asia/Jakarta')),
+
+    topicTags: parseTopicTags(optionalEnv('TOPIC_TAGS', '')),
+    defaultTopicTag: parseTopicTag(optionalEnv('DEFAULT_TOPIC_TAG', ''), 'DEFAULT_TOPIC_TAG'),
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     authorContext: optionalEnv('AUTHOR_CONTEXT', ''),

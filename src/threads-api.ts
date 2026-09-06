@@ -263,11 +263,14 @@ export class ThreadsClient {
   async createMediaContainer(
     text: string,
     imageUrl?: string,
+    topicTag?: string,
   ): Promise<string> {
     const threadsUserId = await this.resolveThreadsUserId();
     const params = new URLSearchParams({
       text,
     });
+
+    if (topicTag) params.set('topic_tag', topicTag);
 
     if (imageUrl) {
       params.set('image_url', imageUrl);
@@ -287,7 +290,7 @@ export class ThreadsClient {
       }),
     );
 
-    logger.debug('Media container created', { containerId: result.id });
+    logger.debug('Media container created', { containerId: result.id, topicTag });
     return result.id;
   }
 

@@ -8,6 +8,7 @@ import {
   dayOfWeekInTimezone,
   fitPostToLimit,
   findExcludedTopic,
+  resolveTopicTag,
   runPipeline,
 } from '../src/pipeline.js';
 import { OpenRouterClient } from '../src/openrouter.js';
@@ -408,5 +409,46 @@ describe('runPipeline account topic boundary', () => {
       vi.restoreAllMocks();
       db.close();
     }
+  });
+});
+
+describe('resolveTopicTag', () => {
+  const categories = {
+    karir: ['resign', 'gaji UMR', 'interview kerja'],
+    tech: ['ngoding', 'startup Indonesia'],
+    food: ['warteg'],
+  };
+  const tags = { karir: 'Career', tech: 'Tech Threads', food: 'Food' };
+
+  it('should pick the tag of the category contributing the most successful queries', () => {
+    const tag = resolveTopicTag(categories, ['resign', 'gaji UMR', 'ngoding'], tags);
+    expect(tag).toBe('Career');
+  });
+
+  it('should match queries case- and whitespace-insensitively', () => {
+    expect(resolveTopicTag(categories, ['  NGODING '], tags)).toBe('Tech Threads');
+  });
+
+  it('should fall back to the default tag when no query matches a category', () => {
+    expect(resolveTopicTag(categories, ['cuaca'], tags, 'Random')).toBe('Random');
+  });
+
+  it('should return empty string when nothing matches and no default is set', () => {
+    expect(resolveTopicTag(categories, ['cuaca'], tags)).toBe('');
+  });
+
+  it('should ignore categories that have no configured tag', () => {
+    // 'karir' wins on hits but has no tag, so the tagged 'tech' category is used.
+    const tag = resolveTopicTag(categories, ['resign', 'gaji UMR', 'ngoding'], {
+      tech: 'Tech Threads',
+    });
+    expect(tag).toBe('Tech Threads');
+  });
+
+  it('should break ties deterministically by category name', () => {
+    const a = resolveTopicTag(categories, ['resign', 'ngoding'], tags);
+    const b = resolveTopicTag(categories, ['ngoding', 'resign'], tags);
+    expect(a).toBe(b);
+    expect(a).toBe('Career');
   });
 });
