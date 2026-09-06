@@ -5,6 +5,7 @@ import { logger } from './logger.js';
 import type { AuthConfig } from './config.js';
 import type { Database } from 'better-sqlite3';
 import { loadToken, saveToken, updateTokenUserId } from './db.js';
+import type { PostMetrics } from './db.js';
 
 const BASE_URL = 'https://graph.threads.net/v1.0';
 const AUTH_BASE = 'https://threads.net/oauth';
@@ -21,6 +22,10 @@ export interface ThreadsPost {
 
 export interface SearchResult {
   data: ThreadsPost[];
+}
+
+interface InsightsResult {
+  data?: Array<{ name: string; total_value?: { value?: number } }>;
 }
 
 export interface MediaContainerResult {
@@ -132,7 +137,7 @@ export class ThreadsClient {
     const params = new URLSearchParams({
       client_id: this.config.threadsAppId,
       redirect_uri: this.config.threadsRedirectUri,
-      scope: 'threads_basic,threads_content_publish,threads_keyword_search',
+      scope: 'threads_basic,threads_content_publish,threads_keyword_search,threads_manage_insights',
       response_type: 'code',
       state,
     });
@@ -292,6 +297,34 @@ export class ThreadsClient {
 
     logger.debug('Media container created', { containerId: result.id, topicTag });
     return result.id;
+  }
+
+  // ── Insights ─────────────────────────────────────────────────────────────
+
+  /**
+   * Engagement for one published post. Requires the threads_manage_insights
+   * scope — without it the API returns 403 and the caller should treat metrics
+   * as unavailable rather than failing the run.
+   */
+  async getMediaInsights(mediaId: string): Promise<PostMetrics> {
+    const url =
+      `${BASE_URL}/${mediaId}/insights?metric=views,likes,replies,reposts,quotes`;
+
+    const result = await this.withAuthRetry<InsightsResult>(() =>
+      apiFetch<InsightsResult>(url, {
+        headers: { Authorization: `Bearer ${this.getAccessToken()}` },
+      }),
+    );
+
+    const metrics: PostMetrics = { views: 0, likes: 0, replies: 0, reposts: 0, quotes: 0 };
+    for (const entry of result.data ?? []) {
+      // Total-value metrics carry the count in total_value.value; the API omits
+      // the field entirely when the count is zero.
+      if (entry.name in metrics) {
+        metrics[entry.name as keyof PostMetrics] = entry.total_value?.value ?? 0;
+      }
+    }
+    return metrics;
   }
 
   /** Step 2: Publish a media container. Returns published post ID. */

@@ -470,3 +470,79 @@ describe('buildMessages', () => {
     expect(user).not.toContain('AI is banned this round');
   });
 });
+
+describe('performance feedback section', () => {
+  const sourcePosts: ThreadsPost[] = [{ id: '1', text: 'Trending tech post' }];
+
+  const scoredPost = (
+    id: number,
+    text: string,
+    views: number,
+    likes: number,
+    replies: number,
+  ): Post => ({
+    id,
+    source_query: 'tech',
+    source_post_ids: null,
+    generated_text: text,
+    threads_post_id: `tp-${id}`,
+    published_at: '2026-09-01T09:00:00Z',
+    views,
+    likes,
+    replies,
+    reposts: 0,
+    quotes: 0,
+    metrics_fetched_at: '2026-09-02T09:00:00Z',
+  });
+
+  it('omits the section until enough posts carry metrics', () => {
+    const posts = [scoredPost(1, 'only one', 100, 5, 1)];
+    const [, user] = buildMessages(sourcePosts, posts, ['tech']);
+    expect(user).not.toContain('actually performed');
+  });
+
+  it('surfaces best and worst performers once enough posts are scored', () => {
+    const posts = [
+      scoredPost(1, 'dead post', 9, 0, 0),
+      scoredPost(2, 'winner post', 267, 4, 6),
+      scoredPost(3, 'mid post', 47, 2, 1),
+      scoredPost(4, 'flat post', 13, 0, 0),
+    ];
+    const [, user] = buildMessages(sourcePosts, posts, ['tech']);
+
+    expect(user).toContain('actually performed');
+    expect(user).toContain('winner post');
+    expect(user).toContain('267 views');
+  });
+
+  it('ranks replies above likes, so a reply-heavy post outranks a like-heavy one', () => {
+    const posts = [
+      scoredPost(1, 'reply magnet', 50, 1, 5), // score 1 + 15 = 16
+      scoredPost(2, 'like magnet', 900, 10, 0), // score 10
+      scoredPost(3, 'mid post', 47, 2, 1),
+      scoredPost(4, 'flat post', 13, 0, 0),
+    ];
+    const [, user] = buildMessages(sourcePosts, posts, ['tech']);
+
+    const bestBlock = user.slice(user.indexOf('Best:'), user.indexOf('Worst:'));
+    expect(bestBlock).toContain('reply magnet');
+  });
+
+  it('excludes posts whose metrics have never been fetched from the ranking', () => {
+    // 4 scored posts clear the threshold, so the section renders; the unscored
+    // one must still be absent from it rather than ranked as a zero.
+    const unscored: Post = { ...scoredPost(9, 'never fetched', 0, 0, 0), views: null };
+    const posts = [
+      unscored,
+      scoredPost(1, 'dead post', 9, 0, 0),
+      scoredPost(2, 'winner post', 267, 4, 6),
+      scoredPost(3, 'mid post', 47, 2, 1),
+      scoredPost(4, 'flat post', 13, 0, 0),
+    ];
+    const [, user] = buildMessages(sourcePosts, posts, ['tech']);
+
+    const section = user.slice(user.indexOf('actually performed'));
+    expect(section).toContain('winner post');
+    expect(section).not.toContain('never fetched');
+  });
+});

@@ -12,6 +12,13 @@ export interface Post {
   generated_text: string;
   threads_post_id: string | null;
   published_at: string | null;
+  /** Engagement, backfilled from /{media-id}/insights. Null until first fetch. */
+  views: number | null;
+  likes: number | null;
+  replies: number | null;
+  reposts: number | null;
+  quotes: number | null;
+  metrics_fetched_at: string | null;
 }
 
 export interface Token {
@@ -88,6 +95,11 @@ function migrate(db: Database.Database): void {
   `);
 
   ensureColumn(db, 'tokens', 'user_id', 'TEXT');
+
+  for (const metric of ['views', 'likes', 'replies', 'reposts', 'quotes']) {
+    ensureColumn(db, 'posts', metric, 'INTEGER');
+  }
+  ensureColumn(db, 'posts', 'metrics_fetched_at', 'TEXT');
 }
 
 function ensureColumn(
@@ -195,9 +207,15 @@ export function loadToken(db: Database.Database, encryptionSecret: string): Toke
 
 // ── Post helpers ─────────────────────────────────────────────────────────────
 
+/** Columns written at insert time. Engagement columns are backfilled later. */
+export type NewPost = Pick<
+  Post,
+  'source_query' | 'source_post_ids' | 'generated_text' | 'threads_post_id' | 'published_at'
+>;
+
 export function savePost(
   db: Database.Database,
-  post: Omit<Post, 'id'>,
+  post: NewPost,
 ): number {
   const result = db.prepare(`
     INSERT INTO posts (source_query, source_post_ids, generated_text, threads_post_id, published_at)
@@ -216,6 +234,57 @@ export function getRecentPosts(db: Database.Database, limit = 5): Post[] {
   return db
     .prepare('SELECT * FROM posts WHERE threads_post_id IS NOT NULL ORDER BY id DESC LIMIT ?')
     .all(limit) as Post[];
+}
+
+export interface PostMetrics {
+  views: number;
+  likes: number;
+  replies: number;
+  reposts: number;
+  quotes: number;
+}
+
+export function updatePostMetrics(
+  db: Database.Database,
+  threadsPostId: string,
+  metrics: PostMetrics,
+): void {
+  db.prepare(`
+    UPDATE posts
+       SET views = ?, likes = ?, replies = ?, reposts = ?, quotes = ?, metrics_fetched_at = ?
+     WHERE threads_post_id = ?
+  `).run(
+    metrics.views,
+    metrics.likes,
+    metrics.replies,
+    metrics.reposts,
+    metrics.quotes,
+    new Date().toISOString(),
+    threadsPostId,
+  );
+}
+
+/**
+ * Published posts from the last `days` whose metrics are worth refreshing.
+ * Engagement keeps accruing for a few days, so recent posts are refetched even
+ * when they already have numbers.
+ */
+export function getPostsNeedingMetrics(
+  db: Database.Database,
+  days = 7,
+  limit = 20,
+): Post[] {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return db
+    .prepare(`
+      SELECT * FROM posts
+       WHERE threads_post_id IS NOT NULL
+         AND published_at IS NOT NULL
+         AND published_at >= ?
+       ORDER BY id DESC
+       LIMIT ?
+    `)
+    .all(cutoff, limit) as Post[];
 }
 
 // ── Run helpers ──────────────────────────────────────────────────────────────

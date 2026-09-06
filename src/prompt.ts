@@ -115,12 +115,8 @@ export function buildUserMessage(
           .join('\n')
       : '(no source posts found)';
 
-  const recentSection =
-    recentPosts.length > 0
-      ? recentPosts
-          .map((p, i) => `${i + 1}. "${p.generated_text}"`)
-          .join('\n')
-      : '(none yet)';
+  const recentSection = buildRecentPostsSection(recentPosts);
+  const performanceSection = buildPerformanceSection(recentPosts);
 
   return `**Current date context:** ${currentDate} (${timezone})
 **Current year:** ${currentYear}
@@ -135,9 +131,48 @@ ${topicMixSection}${styleVarietySection}
 ${sourceSection}
 
 **My recent posts (avoid repeating these topics):**
-${recentSection}
+${recentSection}${performanceSection}
 
 Write one original Bahasa Indonesia post now. Pick the shape (SAR / AOR / NOQ / MICRO) that fits the material. Concrete subject required. Vary opener and closer from my recent posts above — if they open with "Gue", you don't; if they end with a question, you end on a statement. Builder ngobrol di Discord voice, not thinkfluencer essay.`;
+}
+
+function buildRecentPostsSection(recentPosts: Post[]): string {
+  if (recentPosts.length === 0) return '(none yet)';
+  return recentPosts.map((p, i) => `${i + 1}. "${p.generated_text}"`).join('\n');
+}
+
+const MIN_SCORED_POSTS = 4;
+
+/**
+ * Show the model which recent posts actually landed. Without this the prompt
+ * only ever says what was written, never what worked, so every draft optimizes
+ * blind. Omitted until enough posts carry metrics for the ranking to mean
+ * anything.
+ */
+function buildPerformanceSection(recentPosts: Post[]): string {
+  const scored = recentPosts.filter((p) => typeof p.views === 'number' && p.views !== null);
+  if (scored.length < MIN_SCORED_POSTS) return '';
+
+  const engagement = (p: Post): number =>
+    (p.likes ?? 0) + (p.replies ?? 0) * 3 + (p.reposts ?? 0) * 2 + (p.quotes ?? 0) * 2;
+
+  const ranked = [...scored].sort(
+    (a, b) => engagement(b) - engagement(a) || (b.views ?? 0) - (a.views ?? 0),
+  );
+  const best = ranked.slice(0, 2);
+  const worst = ranked.slice(-2).filter((p) => !best.includes(p));
+
+  const format = (p: Post): string =>
+    `- [${p.views ?? 0} views, ${p.likes ?? 0} likes, ${p.replies ?? 0} replies] "${p.generated_text}"`;
+
+  return `
+
+**How my recent posts actually performed (replies are the goal, weigh them heaviest):**
+Best:
+${best.map(format).join('\n')}
+Worst:
+${worst.map(format).join('\n')}
+Study what the best ones did differently — length, opener, how concrete the subject was, whether the last line invited a reply or closed the topic. Move toward that shape. Do NOT reuse their wording or topic.`;
 }
 
 /**

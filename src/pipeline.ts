@@ -9,6 +9,8 @@ import {
   completeRun,
   savePost,
   getRecentPosts,
+  getPostsNeedingMetrics,
+  updatePostMetrics,
   countRecentFailures,
 } from './db.js';
 import { ThreadsClient } from './threads-api.js';
@@ -186,6 +188,37 @@ export function buildCrawlQueryPool(
   }
 
   return crawlQueries;
+}
+
+/**
+ * Backfill engagement for recently published posts. Metrics are a nice-to-have
+ * input to the next draft, never a reason to abandon a run, so a failure here
+ * is logged and swallowed — including the 403 you get without the
+ * threads_manage_insights scope.
+ */
+export async function refreshRecentMetrics(
+  threadsClient: Pick<ThreadsClient, 'getMediaInsights'>,
+  db: Database,
+): Promise<number> {
+  const posts = getPostsNeedingMetrics(db);
+  let updated = 0;
+
+  for (const post of posts) {
+    if (!post.threads_post_id) continue;
+    try {
+      const metrics = await threadsClient.getMediaInsights(post.threads_post_id);
+      updatePostMetrics(db, post.threads_post_id, metrics);
+      updated++;
+    } catch (err) {
+      logger.warn('Metrics refresh failed for post', {
+        threadsPostId: post.threads_post_id,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  logger.info('Metrics refreshed', { candidates: posts.length, updated });
+  return updated;
 }
 
 /**
@@ -412,6 +445,10 @@ export async function runPipeline(
     }
 
     // ── Stage 2: Craft ────────────────────────────────────────────────────
+    // Refresh engagement first so the prompt sees which recent posts actually
+    // landed, not just what they said.
+    await refreshRecentMetrics(threadsClient, db);
+
     const recentPosts = getRecentPosts(db, 10);
     const promptSourcePosts = buildBalancedSourcePosts(
       queryResults,
