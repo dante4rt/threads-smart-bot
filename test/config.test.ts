@@ -8,13 +8,14 @@ const REQUIRED = {
   THREADS_APP_ID: 'app-id',
   THREADS_APP_SECRET: 'app-secret',
   OPENROUTER_API_KEY: 'or-key',
+  TYPESAFE_API_KEY: 'typesafe-key',
 };
 
 const ORIGINAL = { ...process.env };
 
 function withEnv(overrides: Record<string, string | undefined>): void {
   for (const key of Object.keys(process.env)) {
-    if (key.startsWith('THREADS_') || key.startsWith('OPENROUTER_') || key.startsWith('LLM_')) {
+    if (key.startsWith('THREADS_') || key.startsWith('OPENROUTER_') || key.startsWith('LLM_') || key.startsWith('JEV_') || key === 'TYPESAFE_API_KEY') {
       delete process.env[key];
     }
   }
@@ -49,6 +50,27 @@ describe('TIMEZONE validation', () => {
     withEnv({ TIMEZONE: 'Asia/Jakarta, AUTHOR_CONTEXT=I build things' });
     expect(() => getConfig()).toThrow(ConfigError);
     expect(() => getConfig()).toThrow(/not a valid IANA time zone/);
+  });
+});
+
+describe('JEV configuration', () => {
+  it('requires an API key when the gate is enabled', () => {
+    withEnv({ TYPESAFE_API_KEY: undefined });
+    delete process.env['TYPESAFE_API_KEY'];
+    expect(() => getConfig()).toThrow(/TYPESAFE_API_KEY is required/);
+  });
+
+  it('allows an explicit bypass without a TypeSafe key', () => {
+    withEnv({ JEV_ENABLED: 'false' });
+    delete process.env['TYPESAFE_API_KEY'];
+    expect(getConfig().jevEnabled).toBe(false);
+  });
+
+  it('validates the threshold and enabled flag', () => {
+    withEnv({ JEV_MIN_SCORE: '1.2' });
+    expect(() => getConfig()).toThrow(/JEV_MIN_SCORE/);
+    withEnv({ JEV_ENABLED: 'tru' });
+    expect(() => getConfig()).toThrow(/JEV_ENABLED/);
   });
 });
 

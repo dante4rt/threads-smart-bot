@@ -24,6 +24,7 @@
     "dev:run:dry": "tsx src/index.ts run --dry"
   },
   "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0",
     "better-sqlite3": "^9.4.3",
     "node-cron": "^3.0.3"
   },

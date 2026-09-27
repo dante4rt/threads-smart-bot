@@ -16,7 +16,8 @@ import {
 import { ThreadsClient } from './threads-api.js';
 import { OpenRouterClient } from './openrouter.js';
 import { buildMessages } from './prompt.js';
-import { generateGroundedPost } from './fact-check.js';
+import { generateGroundedPost, verifyPostGrounding } from './fact-check.js';
+import { evaluateCaption } from './jev.js';
 import { findImage } from './media.js';
 import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
@@ -27,6 +28,7 @@ const MAX_POST_CHARS = 450;
 const TARGET_POST_CHARS = 350;
 const POSTS_PER_QUERY = 25;
 const MAX_COMPRESSION_ATTEMPTS = 2;
+const CAPTION_RETRY_DELAY_CAP_MS = 5 * 60 * 1000;
 const TREND_FIRST_FALLBACK_SEARCH_QUERIES = [
   'trending',
   'viral',
@@ -54,6 +56,13 @@ const AI_QUERY_PATTERN = /\b(ai|artificial intelligence|chatgpt|openai|claude|ge
 
 /** Simple in-process run lock to prevent overlapping executions. */
 let runInProgress = false;
+
+async function waitBeforeCaptionRetry(attempt: number): Promise<void> {
+  if (attempt < 3) return;
+  const delayMs = Math.min(CAPTION_RETRY_DELAY_CAP_MS, 5_000 * 2 ** Math.min(attempt - 3, 6));
+  logger.warn('Waiting before another caption attempt', { attempt, delayMs });
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
 export interface PipelineResult {
   status: 'success' | 'failed' | 'skipped';
@@ -476,61 +485,122 @@ export async function runPipeline(
       successfulQueries,
     });
 
-    const grounded = await generateGroundedPost(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      promptSourcePosts,
-      (messages, maxTokens, temperature) =>
-        withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
-    );
+    let safeText = '';
+    let jevFeedback = '';
+    // Keep this run active until a caption passes. Later scheduled runs wait on
+    // runInProgress, so only one caption can be in the approval loop at a time.
+    for (let captionAttempt = 1; ; captionAttempt++) {
+      const grounded = await generateGroundedPost(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+          ...(jevFeedback ? [{ role: 'user' as const, content: jevFeedback }] : []),
+        ],
+        promptSourcePosts,
+        (messages, maxTokens, temperature) =>
+          withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
+      );
 
-    if (grounded.text === null) {
-      const message =
-        `Skipping publish: generated drafts failed fact grounding after ${grounded.attempts} attempts. ` +
-        `Unsupported claims: ${grounded.violations.join('; ')}`;
-      logger.warn('Craft stage rejected by grounding gate', {
-        attempts: grounded.attempts,
-        violations: grounded.violations,
-      });
-      completeRun(db, runId, 'failed', message);
-      return { status: 'skipped', error: message };
-    }
+      if (grounded.text === null) {
+        const message =
+          `Generated drafts failed fact grounding after ${grounded.attempts} attempts. ` +
+          `Unsupported claims: ${grounded.violations.join('; ')}`;
+        logger.warn('Craft stage rejected by grounding gate', {
+          attempts: grounded.attempts,
+          violations: grounded.violations,
+        });
+        if (config.jevEnabled) {
+          jevFeedback = `${message} Choose a different, source-supported angle.`;
+          await waitBeforeCaptionRetry(captionAttempt);
+          continue;
+        }
+        completeRun(db, runId, 'failed', message);
+        return { status: 'skipped', error: message };
+      }
 
-    const generatedText = grounded.text;
-
-    const fittedText = await fitPostToLimit(
-      generatedText,
-      (text, targetChars) =>
-        withRetry(() =>
-          openRouterClient.chat(
-            [
-              {
-                role: 'system',
-                content:
-                  `You are an expert social editor. Rewrite the Threads post below in natural Bahasa Indonesia. ` +
-                  `Make it SHORTER and PUNCHIER, fit under ${targetChars} characters. ` +
-                  `Pick the single strongest angle and cut everything else. ` +
-                  `No em dashes, no colons, no hashtags, no emojis unless essential, no filler. ` +
-                  `Keep line breaks between beats if the original has them, don't flatten into one paragraph. ` +
-                  'Return ONLY the rewritten post text.',
-              },
-              { role: 'user', content: text },
-            ],
-            // Same budget as generation: a reasoning model thinks just as long before a rewrite.
-            config.llmMaxTokens,
+      const fittedText = await fitPostToLimit(
+        grounded.text,
+        (text, targetChars) =>
+          withRetry(() =>
+            openRouterClient.chat(
+              [
+                {
+                  role: 'system',
+                  content:
+                    `You are an expert social editor. Rewrite the Threads post below in natural Bahasa Indonesia. ` +
+                    `Make it SHORTER and PUNCHIER, fit under ${targetChars} characters. ` +
+                    `Pick the single strongest angle and cut everything else. ` +
+                    `No em dashes, no colons, no hashtags, no emojis unless essential, no filler. ` +
+                    `Keep line breaks between beats if the original has them, don't flatten into one paragraph. ` +
+                    'Return ONLY the rewritten post text.',
+                },
+                { role: 'user', content: text },
+              ],
+              config.llmMaxTokens,
+            ),
           ),
-        ),
-    );
-    const safeText = sanitizePost(fittedText);
-    const excludedTopic = findExcludedTopic(safeText, config.excludedTopics);
-    if (excludedTopic) {
-      const message = `Skipping publish: generated post violates the account topic boundary (${excludedTopic}).`;
-      logger.warn('Craft stage rejected by account topic boundary', { excludedTopic });
-      completeRun(db, runId, 'failed', message);
-      return { status: 'skipped', error: message };
+      );
+      const candidate = sanitizePost(fittedText);
+      const excludedTopic = findExcludedTopic(candidate, config.excludedTopics);
+      if (excludedTopic) {
+        const message = `Generated post violates the account topic boundary (${excludedTopic}).`;
+        logger.warn('Craft stage rejected by account topic boundary', { excludedTopic });
+        if (config.jevEnabled) {
+          jevFeedback = `${message} Choose a completely different allowed topic. ` +
+            `Previous rejected caption: ${JSON.stringify(candidate)}.`;
+          await waitBeforeCaptionRetry(captionAttempt);
+          continue;
+        }
+        completeRun(db, runId, 'failed', message);
+        return { status: 'skipped', error: message };
+      }
+
+      if (candidate !== grounded.text) {
+        const finalVerdict = await verifyPostGrounding(
+          candidate,
+          promptSourcePosts,
+          (messages, maxTokens, temperature) =>
+            withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
+        );
+        if (!finalVerdict.grounded) {
+          logger.warn('Final caption failed fact grounding', { violations: finalVerdict.violations });
+          if (config.jevEnabled) {
+            jevFeedback = `The final caption was rejected after editing because these claims are unsupported: ` +
+              `${finalVerdict.violations.join('; ')}. Write a different source-supported caption.`;
+            await waitBeforeCaptionRetry(captionAttempt);
+            continue;
+          }
+          const message = `Skipping publish: final caption failed fact grounding: ${finalVerdict.violations.join('; ')}`;
+          completeRun(db, runId, 'failed', message);
+          return { status: 'skipped', error: message };
+        }
+      }
+
+      if (config.jevEnabled) {
+        const assessment = await evaluateCaption(
+          candidate, recentPosts, successfulQueries, config.typesafeApiKey!, config.jevMinScore,
+        );
+        logger.info('JEV caption assessment', {
+          captionAttempt,
+          approved: assessment.approved,
+          score: assessment.score,
+          dimensions: assessment.dimensions,
+        });
+        if (!assessment.approved) {
+          jevFeedback = `The previous caption was rejected by an editorial quality check. ` +
+            `Write a substantially different angle, not a paraphrase. Improve these aspects: ` +
+            `${assessment.weakDimensions.join(', ') || 'overall attention and conversation value'}. ` +
+            `Previous rejected caption: ${JSON.stringify(candidate)}. ` +
+            `Keep all source-grounding, account-boundary, voice, and length rules.`;
+          await waitBeforeCaptionRetry(captionAttempt);
+          continue;
+        }
+      }
+
+      safeText = candidate;
+      break;
     }
+
     logger.info('Post crafted', { length: safeText.length });
 
     // ── Stage 3: Publish ──────────────────────────────────────────────────

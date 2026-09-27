@@ -88,6 +88,21 @@ function parsePositiveInt(val: string, key: string): number {
   return parsed;
 }
 
+function parseUnitInterval(val: string, key: string): number {
+  const parsed = Number(val);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new ConfigError(`${key} must be a number between 0 and 1`);
+  }
+  return parsed;
+}
+
+function parseJevEnabled(val: string): boolean {
+  if (val === 'true' || val === '1') return true;
+  if (val === 'false' || val === '0') return false;
+  throw new ConfigError('JEV_ENABLED must be true or false');
+}
+
+
 // 7 = one lead bucket per weekday, so day-of-week rotation gives a distinct
 // leading theme every day when enough queries exist.
 const DEFAULT_BUCKET_COUNT = 7;
@@ -166,6 +181,9 @@ export interface Config {
   llmBaseUrl: string;
   /** Completion budget per call. Reasoning models spend most of it thinking, so this is much larger than the visible post. */
   llmMaxTokens: number;
+  jevEnabled: boolean;
+  typesafeApiKey: string | undefined;
+  jevMinScore: number;
 
   searchQueries: string[];
   /**
@@ -241,6 +259,10 @@ export function getConfig(): Config {
   if (process.env['LLM_BASE_URL'] && !process.env['LLM_MODEL']) {
     throw new ConfigError('LLM_MODEL is required when LLM_BASE_URL is set (the OpenRouter default model will not exist on a self-hosted endpoint)');
   }
+  const jevEnabled = parseJevEnabled(optionalEnv('JEV_ENABLED', 'true'));
+  if (jevEnabled && !process.env['TYPESAFE_API_KEY']) {
+    throw new ConfigError('TYPESAFE_API_KEY is required when JEV_ENABLED=true');
+  }
 
   _config = {
     ...authConfig,
@@ -249,6 +271,9 @@ export function getConfig(): Config {
     openrouterModel:   process.env['LLM_MODEL'] || optionalEnv('OPENROUTER_MODEL', 'anthropic/claude-opus-4-6'),
     llmBaseUrl:        optionalEnv('LLM_BASE_URL', 'https://openrouter.ai/api/v1'),
     llmMaxTokens:      parsePositiveInt(optionalEnv('LLM_MAX_TOKENS', '8000'), 'LLM_MAX_TOKENS'),
+    jevEnabled,
+    typesafeApiKey:    process.env['TYPESAFE_API_KEY'] || undefined,
+    jevMinScore:       parseUnitInterval(optionalEnv('JEV_MIN_SCORE', '0.65'), 'JEV_MIN_SCORE'),
 
     searchQueries: optionalEnv(
       'SEARCH_QUERIES',

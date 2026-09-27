@@ -160,6 +160,9 @@ Meta docs:
 | `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | Point at a self-hosted/OpenAI-compatible endpoint (e.g. 9router) instead of OpenRouter. Works with or without a trailing `/v1` |
 | `LLM_API_KEY` | — | Overrides `OPENROUTER_API_KEY` when set |
 | `LLM_MODEL` | — | Overrides `OPENROUTER_MODEL` when set |
+| `TYPESAFE_API_KEY` | — | Required for the JEV caption gate when enabled |
+| `JEV_ENABLED` | `true` | Evaluate captions with TypeSafe JEV before publishing |
+| `JEV_MIN_SCORE` | `0.65` | Minimum weighted caption quality score, from 0 to 1 |
 | `SEARCH_QUERIES` | (long default — see `.env.example`) | Comma-separated seed queries for crawl |
 | `CATEGORY_QUERIES` | auto-derived from `SEARCH_QUERIES` | JSON map of themed query buckets for day-of-week rotation. Example: `{"tech":["ngoding","SaaS"],"fintech":["crypto"]}` |
 | `AUTHOR_CONTEXT` | empty | Short bio or project list. Lets the LLM reference your work naturally when topics align; suppressed automatically once your project was mentioned in 2+ of the last 10 posts, so it doesn't dominate the feed. |
@@ -187,6 +190,7 @@ Meta docs:
 - The prompt uses a silent STEPPS filter (Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories) plus recent-post topic checks to avoid repeating generic AI angles.
 - **Category rotation:** when `CATEGORY_QUERIES` is set, the bot picks a different lead bucket each day (Monday = bucket 1, Tuesday = bucket 2, etc.) so the feed stays varied. Without it, `SEARCH_QUERIES` is split into 7 round-robin buckets automatically.
 - **Grounding gate:** every draft is checked against the source posts that inspired it. Claims that aren't directly supported by the source material trigger a rewrite, up to 3 attempts. If all attempts fail, the post is skipped.
+- **JEV caption gate:** TypeSafe scores the final caption's hook, conversation potential, substance, and novelty against recent posts. A rejected caption triggers another grounded draft with feedback until one passes. Repeated attempts back off up to five minutes. The run stays active during retries, so later scheduled runs wait for its approved caption. Publishing waits for approval. Scores estimate editorial quality, not actual reach; adjust `JEV_MIN_SCORE` using observed results.
 - **Author context:** set `AUTHOR_CONTEXT` to a short description of your projects or expertise. The LLM can weave references naturally when topics align, no hard selling. It's dropped from the prompt once your project name shows up in 2+ of the last 10 posts, so the account doesn't turn into a single-topic feed.
 - **Self-hosted LLM:** set `LLM_BASE_URL` (+ `LLM_API_KEY`, `LLM_MODEL`) to route generation through any OpenAI-compatible chat-completions endpoint (e.g. [9router](https://github.com/dante4rt/threads-multi-bot)) instead of OpenRouter. Falls back to OpenRouter when unset.
 
