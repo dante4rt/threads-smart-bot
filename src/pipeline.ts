@@ -406,14 +406,20 @@ export async function runPipeline(
   const runId = startRun(db);
   const effectiveDryRun = dryRun || config.dryRun;
 
-  logger.info('Pipeline started', { runId, dryRun: effectiveDryRun });
+  logger.info('Pipeline started', {
+    runId,
+    dryRun: effectiveDryRun,
+    jevEnabled: config.jevEnabled,
+  });
 
   try {
     const threadsClient = new ThreadsClient(config, db);
     const openRouterClient = new OpenRouterClient(config);
 
     // ── Pre-flight: check/refresh token ───────────────────────────────────
+    logger.info('Token preflight started', { runId });
     await withRetry(() => threadsClient.maybeRefreshToken());
+    logger.info('Token preflight completed', { runId });
 
     // ── Stage 1: Crawl ────────────────────────────────────────────────────
     logger.info('Crawl stage', {
@@ -487,6 +493,9 @@ export async function runPipeline(
 
     let safeText = '';
     let jevFeedback = '';
+    if (!config.jevEnabled) {
+      logger.info('JEV gate disabled; using existing craft flow', { runId });
+    }
     // Keep this run active until a caption passes. Later scheduled runs wait on
     // runInProgress, so only one caption can be in the approval loop at a time.
     for (let captionAttempt = 1; ; captionAttempt++) {
@@ -577,16 +586,30 @@ export async function runPipeline(
       }
 
       if (config.jevEnabled) {
+        logger.info('JEV evaluation started', {
+          runId,
+          captionAttempt,
+          length: candidate.length,
+        });
         const assessment = await evaluateCaption(
           candidate, recentPosts, successfulQueries, config.typesafeApiKey!, config.jevMinScore,
         );
         logger.info('JEV caption assessment', {
+          runId,
           captionAttempt,
           approved: assessment.approved,
           score: assessment.score,
+          minScore: config.jevMinScore,
           dimensions: assessment.dimensions,
         });
         if (!assessment.approved) {
+          logger.warn('JEV rejected caption; regenerating', {
+            runId,
+            captionAttempt,
+            score: assessment.score,
+            minScore: config.jevMinScore,
+            weakDimensions: assessment.weakDimensions,
+          });
           jevFeedback = `The previous caption was rejected by an editorial quality check. ` +
             `Write a substantially different angle, not a paraphrase. Improve these aspects: ` +
             `${assessment.weakDimensions.join(', ') || 'overall attention and conversation value'}. ` +
@@ -626,7 +649,7 @@ export async function runPipeline(
       config.topicTags,
       config.defaultTopicTag,
     );
-    logger.info('Publish stage', { topicTag: topicTag || null, hasImage: Boolean(imageUrl) });
+    logger.info('Publish stage', { runId, topicTag: topicTag || null, hasImage: Boolean(imageUrl) });
 
     // Two-step publish
     const containerId = await withRetry(() =>
@@ -655,7 +678,7 @@ export async function runPipeline(
       logger.warn('3 consecutive failed runs detected');
     }
 
-    logger.info('Pipeline completed successfully', { postId: publishedId });
+    logger.info('Pipeline completed successfully', { runId, postId: publishedId });
     return { status: 'success', postId: publishedId, generatedText: safeText };
 
   } catch (err) {

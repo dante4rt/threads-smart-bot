@@ -95,6 +95,14 @@ async function apiFetch<T>(
   }
   if (!res.ok) {
     const errorBody = await res.text();
+    try {
+      const parsed = JSON.parse(errorBody) as { error?: { code?: number } };
+      if (parsed.error?.code === 190) {
+        throw new AuthError('Threads API rejected the access token');
+      }
+    } catch (error) {
+      if (error instanceof AuthError) throw error;
+    }
     throw new Error(errorBody ? `Threads API error ${res.status}: ${errorBody}` : `Threads API error ${res.status}`);
   }
 
@@ -248,20 +256,71 @@ export class ThreadsClient {
   /** Check if the stored token is nearing expiry (within 10 days) and refresh. */
   async maybeRefreshToken(): Promise<void> {
     const token = loadToken(this.db, this.config.threadsAppSecret);
-    if (!token) return;
+    if (!token) {
+      logger.info('Threads token preflight', {
+        source: this.config.threadsAccessToken ? 'environment' : 'missing',
+      });
+      if (!this.config.threadsAccessToken) {
+        throw new AuthError('No access token found — run `auth` in the bot environment');
+      }
+      return;
+    }
 
     const expiresAt = new Date(token.expires_at);
     const daysUntilExpiry = (expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+    const metadataUsable = Number.isFinite(daysUntilExpiry);
+    logger.info('Threads token preflight', {
+      source: 'sqlite',
+      expiresAt: token.expires_at,
+      daysUntilExpiry: metadataUsable ? Math.round(daysUntilExpiry) : null,
+    });
 
-    if (daysUntilExpiry < 0) {
-      // Already expired
-      logger.error('Token expired', { expiresAt: token.expires_at });
-      throw new AuthError('Token expired — run `auth` to re-authenticate');
+    if (!metadataUsable || daysUntilExpiry < 0) {
+      // The stored timestamp is local metadata. Confirm whether Meta still accepts
+      // the token before declaring it expired or attempting a refresh.
+      logger.warn('Stored token expiry is past or invalid; checking with Threads API', {
+        expiresAt: token.expires_at,
+      });
+      try {
+        await this.getCurrentUserProfile(token.access_token);
+      } catch (error) {
+        if (error instanceof AuthError) {
+          logger.error('Threads API rejected stored token', { expiresAt: token.expires_at });
+          throw new AuthError('Threads token rejected — run `auth` in the bot environment');
+        }
+        throw error;
+      }
+
+      logger.warn('Stored token expiry is stale; Threads API accepted token');
+      try {
+        await this.refreshToken();
+      } catch (error) {
+        logger.warn('Validated token could not be refreshed; continuing with current token', {
+          errorType: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+      return;
     }
 
     if (daysUntilExpiry <= 10) {
       logger.info('Token nearing expiry, refreshing', { daysLeft: Math.round(daysUntilExpiry) });
-      await this.refreshToken();
+      try {
+        await this.refreshToken();
+      } catch (error) {
+        logger.warn('Token refresh failed; checking whether current token still works', {
+          errorType: error instanceof Error ? error.name : 'unknown',
+        });
+        try {
+          await this.getCurrentUserProfile(token.access_token);
+        } catch (profileError) {
+          if (profileError instanceof AuthError) {
+            logger.error('Threads API rejected near-expiry token after failed refresh');
+            throw new AuthError('Threads token rejected — run `auth` in the bot environment');
+          }
+          throw profileError;
+        }
+        logger.warn('Current token accepted by Threads API; continuing without refresh');
+      }
     }
   }
 

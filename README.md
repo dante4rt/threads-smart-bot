@@ -64,6 +64,7 @@ npm start
 | Command | Purpose |
 | --- | --- |
 | `npm run auth` | OAuth flow, stores long-lived token in SQLite |
+| `npm run auth:check` | Ask Threads whether the bot's current token can read its profile; does not publish |
 | `npm run post:test` | Publish one manual test post immediately |
 | `npm run run:once` | Run full pipeline once |
 | `npm run run:dry` | Run full pipeline without publishing |
@@ -84,6 +85,7 @@ npm run dev:run:dry
 ```bash
 docker compose up -d --build
 docker compose run --rm bot node dist/index.js auth
+docker compose run --rm bot node dist/index.js auth-check
 docker compose run --rm bot node dist/index.js post-test --dry --text "Docker smoke test"
 docker compose run --rm bot node dist/index.js run --dry
 ```
@@ -99,6 +101,19 @@ What Docker does:
 
 > [!WARNING]
 > Do not mix `docker compose ... auth` with local `npm run ...` commands. If you auth in Docker, also run the bot in Docker.
+
+If logs report a stored token expiry, run `docker compose run --rm bot node dist/index.js auth-check`.
+This checks the token in the same Docker volume as the scheduler, then asks Threads for the account profile.
+Local `npm run auth:check` rebuilds first, but checks the local SQLite database instead of the Docker volume.
+If Threads rejects it, run `docker compose run --rm bot node dist/index.js auth` to authorize again.
+Posts visible on the public profile do not prove that the Docker token still works.
+`auth-check` verifies identity access; it does not verify publishing or keyword-search permissions.
+
+To observe the whole caption pipeline without publishing, run
+`docker compose run --rm bot node dist/index.js run --dry` and inspect the structured logs.
+Startup and each run report whether JEV is enabled. An enabled run logs `JEV evaluation started`
+and `JEV caption assessment` with the score, threshold, and approval result.
+Without `TYPESAFE_API_KEY`, the log reports that the existing craft flow is in use.
 
 ## VPS Process Manager
 

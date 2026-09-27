@@ -35,6 +35,8 @@ const [, , command, ...args] = process.argv;
 
 if (command === 'auth') {
   await runAuth();
+} else if (command === 'auth-check') {
+  await runAuthCheck();
 } else if (command === 'post-test') {
   const dryRun = args.includes('--dry');
   await runDirectPost(args, dryRun);
@@ -97,6 +99,19 @@ async function runAuth(): Promise<void> {
   console.log('\nYou can now start the bot with: npm start\n');
 }
 
+async function runAuthCheck(): Promise<void> {
+  const config = getAuthConfig();
+  const db = getDb(config.dbPath);
+  const client = new ThreadsClient(config, db);
+  await client.maybeRefreshToken();
+  const profile = await client.getCurrentUserProfile();
+  logger.info('Threads auth check passed', {
+    userId: profile.id,
+    username: profile.username ?? null,
+  });
+  console.log(`\n✓ Threads API accepted the bot token for @${profile.username ?? profile.id}`);
+}
+
 async function runOnce(dryRun: boolean): Promise<void> {
   const config = getConfig();
   const db = getDb(config.dbPath);
@@ -120,8 +135,6 @@ async function runDirectPost(args: string[], dryRun: boolean): Promise<void> {
   const db = getDb(config.dbPath);
   const client = new ThreadsClient(config, db);
 
-  await client.maybeRefreshToken();
-
   const defaultText = `Test post from threads-smart-bot • ${new Date().toISOString()}`;
   const providedText = getArgValue(args, '--text');
   const rawText = providedText ?? await promptWithDefault('Post text', defaultText);
@@ -141,6 +154,7 @@ async function runDirectPost(args: string[], dryRun: boolean): Promise<void> {
     return;
   }
 
+  await client.maybeRefreshToken();
   const containerId = await client.createMediaContainer(safeText);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   const postId = await client.publishMediaContainer(containerId);
@@ -168,6 +182,8 @@ async function startScheduler(): Promise<void> {
     searchQueries: config.searchQueries,
     model: config.openrouterModel,
     dryRun: config.dryRun,
+    jevEnabled: config.jevEnabled,
+    ...(config.jevEnabled ? { jevMinScore: config.jevMinScore } : {}),
   });
 
   const scheduledTasks: cron.ScheduledTask[] = [];
@@ -182,8 +198,23 @@ async function startScheduler(): Promise<void> {
       expr,
       async () => {
         logger.info('Cron triggered', { time: timeStr });
+        const startedAt = Date.now();
         try {
-          await runPipeline(config, db);
+          const result = await runPipeline(config, db);
+          const summary = {
+            time: timeStr,
+            status: result.status,
+            postId: result.postId ?? null,
+            durationMs: Date.now() - startedAt,
+          };
+          if (result.status === 'success') {
+            logger.info('Scheduled run finished', summary);
+          } else {
+            logger.warn('Scheduled run finished without a post', {
+              ...summary,
+              error: result.error,
+            });
+          }
         } catch (err) {
           if (err instanceof RunLockError) {
             logger.warn('Skipping overlapping scheduled run', { time: timeStr });
