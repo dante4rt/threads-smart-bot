@@ -8,7 +8,6 @@ const REQUIRED = {
   THREADS_APP_ID: 'app-id',
   THREADS_APP_SECRET: 'app-secret',
   OPENROUTER_API_KEY: 'or-key',
-  TYPESAFE_API_KEY: 'typesafe-key',
 };
 
 const ORIGINAL = { ...process.env };
@@ -54,15 +53,24 @@ describe('TIMEZONE validation', () => {
 });
 
 describe('JEV configuration', () => {
-  it('requires an API key when the gate is enabled', () => {
-    withEnv({ TYPESAFE_API_KEY: undefined });
-    delete process.env['TYPESAFE_API_KEY'];
+  it('uses the existing flow when the API key is absent', () => {
+    withEnv({});
+    expect(getConfig().jevEnabled).toBe(false);
+    expect(getConfig().typesafeApiKey).toBeUndefined();
+  });
+
+  it('automatically enables the gate when the key is set', () => {
+    withEnv({ TYPESAFE_API_KEY: 'typesafe-key' });
+    expect(getConfig().jevEnabled).toBe(true);
+  });
+
+  it('requires an API key when the gate is explicitly enabled', () => {
+    withEnv({ JEV_ENABLED: 'true' });
     expect(() => getConfig()).toThrow(/TYPESAFE_API_KEY is required/);
   });
 
   it('allows an explicit bypass without a TypeSafe key', () => {
-    withEnv({ JEV_ENABLED: 'false' });
-    delete process.env['TYPESAFE_API_KEY'];
+    withEnv({ JEV_ENABLED: 'false', TYPESAFE_API_KEY: 'typesafe-key' });
     expect(getConfig().jevEnabled).toBe(false);
   });
 

@@ -259,8 +259,11 @@ export function getConfig(): Config {
   if (process.env['LLM_BASE_URL'] && !process.env['LLM_MODEL']) {
     throw new ConfigError('LLM_MODEL is required when LLM_BASE_URL is set (the OpenRouter default model will not exist on a self-hosted endpoint)');
   }
-  const jevEnabled = parseJevEnabled(optionalEnv('JEV_ENABLED', 'true'));
-  if (jevEnabled && !process.env['TYPESAFE_API_KEY']) {
+  const typesafeApiKey = process.env['TYPESAFE_API_KEY']?.trim() || undefined;
+  const jevEnabled = process.env['JEV_ENABLED'] === undefined
+    ? Boolean(typesafeApiKey)
+    : parseJevEnabled(process.env['JEV_ENABLED']);
+  if (jevEnabled && !typesafeApiKey) {
     throw new ConfigError('TYPESAFE_API_KEY is required when JEV_ENABLED=true');
   }
 
@@ -272,7 +275,7 @@ export function getConfig(): Config {
     llmBaseUrl:        optionalEnv('LLM_BASE_URL', 'https://openrouter.ai/api/v1'),
     llmMaxTokens:      parsePositiveInt(optionalEnv('LLM_MAX_TOKENS', '8000'), 'LLM_MAX_TOKENS'),
     jevEnabled,
-    typesafeApiKey:    process.env['TYPESAFE_API_KEY'] || undefined,
+    typesafeApiKey,
     jevMinScore:       parseUnitInterval(optionalEnv('JEV_MIN_SCORE', '0.65'), 'JEV_MIN_SCORE'),
 
     searchQueries: optionalEnv(

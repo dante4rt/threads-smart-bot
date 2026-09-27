@@ -24,7 +24,7 @@ function stubJev(...values: number[]) {
 function setupPipeline() {
   const db = new Database(':memory:');
   migrate(db);
-  const config = {
+  const config: Config = {
     threadsAppId: 'app-id', threadsAppSecret: 'app-secret', threadsUserId: '123',
     threadsAccessToken: 'access-token', threadsRedirectUri: 'https://localhost/callback',
     dbPath: ':memory:', openrouterApiKey: 'or-key', openrouterModel: 'test-model',
@@ -34,7 +34,7 @@ function setupPipeline() {
     minSourcePosts: 1, minSourceQueries: 1, maxSourcePostsPerQuery: 1,
     postTimes: ['13:30'], timezone: 'Asia/Jakarta', topicTags: {}, defaultTopicTag: '',
     unsplashAccessKey: undefined, authorContext: '', excludedTopics: [], dryRun: false,
-  } satisfies Config;
+  };
   vi.spyOn(ThreadsClient.prototype, 'maybeRefreshToken').mockResolvedValue(undefined);
   vi.spyOn(ThreadsClient.prototype, 'keywordSearch').mockResolvedValue([
     { id: 'source-1', text: 'Startup lokal bahas biaya langganan tools' },
@@ -45,6 +45,24 @@ function setupPipeline() {
 }
 
 describe('JEV caption gate', () => {
+  it('keeps the existing publish flow when TypeSafe is not configured', async () => {
+    const { db, config } = setupPipeline();
+    config.jevEnabled = false;
+    config.typesafeApiKey = undefined;
+    config.dryRun = true;
+    const jev = vi.spyOn(TypeSafeClient.prototype, 'systemOne');
+    vi.spyOn(OpenRouterClient.prototype, 'chat')
+      .mockResolvedValueOnce('Biaya tools startup terasa berat.')
+      .mockResolvedValueOnce('{"grounded":true,"violations":[]}');
+    try {
+      const result = await runPipeline(config, db);
+      expect(result).toMatchObject({ status: 'success', generatedText: 'Biaya tools startup terasa berat.' });
+      expect(jev).not.toHaveBeenCalled();
+    } finally {
+      db.close();
+    }
+  });
+
   it('sends the final caption and recent post context to Jev', async () => {
     const spy = stubJev(0.8);
     const result = await evaluateCaption('Biaya tools startup makin berat?', [], ['startup'], 'key', 0.65);
