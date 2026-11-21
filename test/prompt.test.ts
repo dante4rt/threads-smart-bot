@@ -666,3 +666,39 @@ describe('trending queries section', () => {
     expect(user).not.toContain('Trending RIGHT NOW');
   });
 });
+
+describe('guard window stays at 10 posts when callers pass more', () => {
+  const sourcePosts: ThreadsPost[] = [{ id: '1', text: 'Trending tech post' }];
+
+  const post = (id: number, text: string): Post => ({
+    id,
+    source_query: 'trending',
+    source_post_ids: null,
+    generated_text: text,
+    threads_post_id: `tp-${id}`,
+    published_at: '2026-01-01T09:00:00Z',
+  });
+
+  it('topic caps and niche floor evaluate the newest 10, not the whole list', () => {
+    // Newest 10: all lifestyle (niche floor territory). Posts 11-20: AI-heavy —
+    // outside the window, so the AI cap must NOT fire off stale history.
+    const feed = [
+      ...Array.from({ length: 10 }, (_, i) => post(i + 1, `Catatan belanja bulanan nomor ${i + 1} makin panjang.`)),
+      ...Array.from({ length: 10 }, (_, i) => post(i + 11, `ChatGPT sama Gemini dipakai buat riset nomor ${i + 1}.`)),
+    ];
+
+    const [, user] = buildMessages(sourcePosts, feed, ['trending']);
+
+    expect(user).toContain('generic consumer-lifestyle');
+    expect(user).toContain('0/10 recent posts touch tech');
+    expect(user).not.toContain('AI is overused right now');
+  });
+
+  it('still lists all passed posts in the anti-repeat section', () => {
+    const feed = Array.from({ length: 20 }, (_, i) => post(i + 1, `Post unik nomor ${i + 1}.`));
+
+    const [, user] = buildMessages(sourcePosts, feed, ['trending']);
+
+    expect(user).toContain('Post unik nomor 20.');
+  });
+});

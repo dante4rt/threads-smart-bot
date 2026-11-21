@@ -467,7 +467,7 @@ export async function runPipeline(
     );
 
     // Trend trigger: what is Indonesia talking about right now. Fail-soft — a
-    // dead feed or an API rejecting `since` must never cost the run.
+    // dead feed or a failing trend query must never cost the run.
     let trendTerms: string[] = [];
     if (config.trendFeeds.length > 0) {
       try {

@@ -25,10 +25,12 @@ export interface SearchResult {
 }
 
 export interface KeywordSearchOptions {
-  /** TOP (default) ranks by popularity; RECENT returns the newest posts. */
+  /**
+   * TOP (default) ranks by popularity; RECENT returns the newest posts.
+   * The API also accepts `since`, but a live probe (2026-11-21) showed it
+   * thins RECENT results to near zero — do not add it back without re-probing.
+   */
   searchType?: 'TOP' | 'RECENT';
-  /** Restrict results to the last N hours via the API's `since` param. */
-  sinceHours?: number;
 }
 
 interface InsightsEntry {
@@ -343,10 +345,6 @@ export class ThreadsClient {
       search_type: options.searchType ?? 'TOP',
       limit: String(limit),
     });
-    if (options.sinceHours !== undefined) {
-      const since = Math.floor(Date.now() / 1000) - options.sinceHours * 3600;
-      params.set('since', String(since));
-    }
 
     const result = await this.withAuthRetry<SearchResult>(() =>
       apiFetch<SearchResult>(`${BASE_URL}/keyword_search?${params}`, {

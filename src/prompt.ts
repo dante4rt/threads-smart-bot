@@ -108,12 +108,17 @@ export function buildUserMessage(
     options.now ?? new Date(),
     options.timezone ?? 'UTC',
   );
-  const topicMixSection = buildTopicMixSection(recentPosts);
-  const styleVarietySection = buildStyleVarietySection(recentPosts);
+  // Guards read a 10-post window even when callers pass more: their absolute
+  // thresholds (3+ AI posts, 2+ project mentions) are calibrated to 10, and a
+  // wider window silently tightens the caps while making the niche floor rarer.
+  // The full list still feeds the anti-repeat section below.
+  const guardWindow = recentPosts.slice(0, 10);
+  const topicMixSection = buildTopicMixSection(guardWindow);
+  const styleVarietySection = buildStyleVarietySection(guardWindow);
   const accountBoundarySection = options.excludedTopics && options.excludedTopics.length > 0
     ? `\n\n**Account topic boundary (zero tolerance):** Never write about: ${options.excludedTopics.join(', ')}. Do not use it as a comparison, a joke, a source example, or a fallback topic.`
     : '';
-  const authorContextSection = buildAuthorContextSection(options.authorContext, recentPosts);
+  const authorContextSection = buildAuthorContextSection(options.authorContext, guardWindow);
   const trendingSection = options.trendingQueries && options.trendingQueries.length > 0
     ? `\n\n**Trending RIGHT NOW (from Indonesian news/search, confirmed live on Threads):** ${options.trendingQueries.join(', ')}. Source posts fetched for these are the freshest material you have — prefer one of these topics if the posts give you a concrete angle. A take on today's conversation beats an evergreen observation.`
     : '';

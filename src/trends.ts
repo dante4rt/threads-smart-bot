@@ -3,7 +3,7 @@
 // Threads has no hashtags and its Trending Topics API covers US/JP only, so
 // trends come from outside: Indonesian news RSS + Google Trends RSS act as the
 // trigger, and the crawl stage confirms each candidate on Threads itself via
-// keyword_search (RECENT + since). Feeds verified live on 2026-11-21.
+// keyword_search (RECENT). Feeds verified live on 2026-11-21.
 
 import { logger } from './logger.js';
 
