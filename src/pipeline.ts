@@ -587,8 +587,11 @@ export async function runPipeline(
     );
     // Mandated topic's headlines join the source posts so the prompt AND the
     // grounding judge share the same material.
+    // Headlines go FIRST: the prompt caps source posts at 30, and a mandate
+    // whose grounding material fell past the cap would demand facts the writer
+    // cannot see. Leading also gives the mandated topic the most weight.
     const craftSourcePosts = mandateTopic
-      ? [...promptSourcePosts, ...buildHeadlineSourcePosts(mandateTopic)]
+      ? [...buildHeadlineSourcePosts(mandateTopic), ...promptSourcePosts]
       : promptSourcePosts;
     const [systemPrompt, userMessage] = buildMessages(craftSourcePosts, recentPosts, successfulQueries, {
       timezone: config.timezone,
@@ -599,7 +602,7 @@ export async function runPipeline(
     });
 
     logger.info('Craft stage', {
-      sourcePosts: promptSourcePosts.length,
+      sourcePosts: craftSourcePosts.length,
       totalSourcePosts: allPosts.length,
       recentPosts: recentPosts.length,
       successfulQueries,

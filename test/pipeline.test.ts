@@ -455,3 +455,134 @@ describe('resolveTopicTag', () => {
     expect(a).toBe('Career');
   });
 });
+
+describe('runPipeline trend mandate wiring', () => {
+  it('feeds mandate headlines to the prompt and the grounding judge', async () => {
+    const { migrate } = await import('../src/db.js');
+    const db = new Database(':memory:');
+    migrate(db);
+
+    const config: Config = {
+      threadsAppId: 'app-id',
+      threadsAppSecret: 'app-secret',
+      threadsUserId: '123',
+      threadsAccessToken: 'access-token',
+      threadsRedirectUri: 'https://localhost/callback',
+      dbPath: ':memory:',
+      openrouterApiKey: 'or-key',
+      openrouterModel: 'test-model',
+      llmBaseUrl: 'https://openrouter.ai/api/v1',
+      searchQueries: ['trending'],
+      categoryQueries: { general: ['trending'] },
+      minSourcePosts: 1,
+      minSourceQueries: 1,
+      maxSourcePostsPerQuery: 1,
+      postTimes: ['12:15'],
+      timezone: 'Asia/Jakarta',
+      trendFeeds: ['https://feeds.test/rss'],
+      maxTrendQueries: 3,
+      trendMandateMinTitles: 4,
+      unsplashAccessKey: undefined,
+      authorContext: '',
+      excludedTopics: [],
+      dryRun: true,
+    };
+
+    const rss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Pemilu Digital Diuji Coba di Tiga Kota</title></item>
+      <item><title>KPU Bahas Pemilu Digital Tahun Depan</title></item>
+      <item><title>Pro Kontra Pemilu Digital Menguat</title></item>
+      <item><title>Anggaran Pemilu Digital Disorot</title></item>
+    </channel></rss>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(rss, { status: 200 }),
+    ));
+
+    vi.spyOn(ThreadsClient.prototype, 'maybeRefreshToken').mockResolvedValue(undefined);
+    vi.spyOn(ThreadsClient.prototype, 'keywordSearch').mockResolvedValue([
+      { id: 'source-1', text: 'Netizen bahas pemilu digital' },
+    ]);
+    const chat = vi.spyOn(OpenRouterClient.prototype, 'chat')
+      .mockResolvedValueOnce('Pemilu digital jadi wacana serius sekarang.')
+      .mockResolvedValueOnce('{"grounded":true,"violations":[]}');
+
+    try {
+      const result = await runPipeline(config, db, true);
+
+      expect(result.status).toBe('success');
+      const draftMessages = chat.mock.calls[0]![0];
+      const draftUserContent = draftMessages.map((m) => m.content).join('\n');
+      expect(draftUserContent).toContain('TREND MANDATE THIS ROUND');
+      expect(draftUserContent).toContain('[Berita hari ini] Pemilu Digital Diuji Coba di Tiga Kota');
+
+      const judgeMessages = chat.mock.calls[1]![0];
+      const judgeContent = judgeMessages.map((m) => m.content).join('\n');
+      expect(judgeContent).toContain('[Berita hari ini] Pemilu Digital Diuji Coba di Tiga Kota');
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      db.close();
+    }
+  });
+
+  it('leaves craft input unchanged when the mandate is disabled', async () => {
+    const { migrate } = await import('../src/db.js');
+    const db = new Database(':memory:');
+    migrate(db);
+
+    const config: Config = {
+      threadsAppId: 'app-id',
+      threadsAppSecret: 'app-secret',
+      threadsUserId: '123',
+      threadsAccessToken: 'access-token',
+      threadsRedirectUri: 'https://localhost/callback',
+      dbPath: ':memory:',
+      openrouterApiKey: 'or-key',
+      openrouterModel: 'test-model',
+      llmBaseUrl: 'https://openrouter.ai/api/v1',
+      searchQueries: ['trending'],
+      categoryQueries: { general: ['trending'] },
+      minSourcePosts: 1,
+      minSourceQueries: 1,
+      maxSourcePostsPerQuery: 1,
+      postTimes: ['12:15'],
+      timezone: 'Asia/Jakarta',
+      trendFeeds: ['https://feeds.test/rss'],
+      maxTrendQueries: 3,
+      trendMandateMinTitles: 0,
+      unsplashAccessKey: undefined,
+      authorContext: '',
+      excludedTopics: [],
+      dryRun: true,
+    };
+
+    const rss = `<?xml version="1.0"?><rss><channel>
+      <item><title>Pemilu Digital Diuji Coba di Tiga Kota</title></item>
+      <item><title>KPU Bahas Pemilu Digital Tahun Depan</title></item>
+      <item><title>Pro Kontra Pemilu Digital Menguat</title></item>
+      <item><title>Anggaran Pemilu Digital Disorot</title></item>
+    </channel></rss>`;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(rss, { status: 200 })));
+
+    vi.spyOn(ThreadsClient.prototype, 'maybeRefreshToken').mockResolvedValue(undefined);
+    vi.spyOn(ThreadsClient.prototype, 'keywordSearch').mockResolvedValue([
+      { id: 'source-1', text: 'Netizen bahas pemilu digital' },
+    ]);
+    const chat = vi.spyOn(OpenRouterClient.prototype, 'chat')
+      .mockResolvedValueOnce('Pemilu digital jadi wacana serius sekarang.')
+      .mockResolvedValueOnce('{"grounded":true,"violations":[]}');
+
+    try {
+      const result = await runPipeline(config, db, true);
+
+      expect(result.status).toBe('success');
+      const draftContent = chat.mock.calls[0]![0].map((m) => m.content).join('\n');
+      expect(draftContent).not.toContain('TREND MANDATE');
+      expect(draftContent).not.toContain('[Berita hari ini]');
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      db.close();
+    }
+  });
+});

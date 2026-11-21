@@ -182,6 +182,7 @@ Meta docs:
 | `CATEGORY_QUERIES` | auto-derived from `SEARCH_QUERIES` | JSON map of themed query buckets for day-of-week rotation. Example: `{"tech":["ngoding","SaaS"],"fintech":["crypto"]}` |
 | `TREND_FEEDS` | Google News ID, Detik, CNN Indonesia, Antara, Google Trends (geo=ID) RSS | Comma-separated RSS feeds polled at crawl time; terms repeated across headlines become extra crawl queries, confirmed on Threads via `search_type=RECENT` before use. Set empty (`TREND_FEEDS=`) to disable trend-reactive crawling. |
 | `MAX_TREND_QUERIES` | `3` | Max trending terms prepended to the day's query pool |
+| `TREND_MANDATE_MIN_TITLES` | `4` | A trend seen in at least this many distinct headlines becomes a hard topic mandate for the post, grounded on those headlines. `0` disables the mandate (trends stay a soft preference). |
 | `AUTHOR_CONTEXT` | empty | Short bio or project list. Lets the LLM reference your work naturally when topics align; suppressed automatically once your project was mentioned in 2+ of the last 10 posts, so it doesn't dominate the feed. |
 | `MIN_SOURCE_POSTS` | `10` | Minimum unique source posts before crafting |
 | `MIN_SOURCE_QUERIES` | `3` | Minimum distinct queries that must contribute posts |
