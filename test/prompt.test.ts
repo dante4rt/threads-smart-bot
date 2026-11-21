@@ -754,3 +754,18 @@ describe('mandate bans headline meta-commentary', () => {
     expect(SYSTEM_PROMPT).toContain('"Gue lebih pengen [baca/lihat/tahu]"');
   });
 });
+
+describe('trend mandate length override', () => {
+  it('lifts the short-post rule and demands substance for mandate posts only', () => {
+    const sources = [{ id: 'news-1', text: '[Berita hari ini] x' }];
+    const [, mandate] = buildMessages(sources, [], ['x'], {
+      trendMandate: { term: 'wapres pemilihan', titleHits: 6 },
+    });
+    const [, normal] = buildMessages(sources, [], ['x']);
+
+    expect(mandate).toContain('200-380 chars');
+    expect(mandate).toContain('FAILED post');
+    expect(mandate).not.toContain('if it runs past 160 chars, cut a beat');
+    expect(normal).toContain('if it runs past 160 chars, cut a beat');
+  });
+});

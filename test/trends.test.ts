@@ -1,7 +1,7 @@
 // test/trends.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { parseRssTitles, extractTrendingTopics, fetchTrendingTopics } from '../src/trends.js';
+import { parseRssTitles, parseRssItems, extractTrendingTopics, fetchTrendingTopics } from '../src/trends.js';
 import { mergeTrendQueries, buildHeadlineSourcePosts, pickMandateTopic } from '../src/pipeline.js';
 
 const RSS_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -213,5 +213,42 @@ describe('pickMandateTopic', () => {
 
   it('ignores topics that were filtered out of the crawl', () => {
     expect(pickMandateTopic([topic('arbitrum airdrop', 20)], accepted, 4, [])).toBeUndefined();
+  });
+});
+
+describe('RSS descriptions as grounding detail', () => {
+  it('parses item descriptions, stripping CDATA, tags and double-encoded entities', () => {
+    const xml = `<rss><channel>
+      <item><title>Eks Kader PSI Ditangkap</title>
+        <description><![CDATA[<p>Polda Metro Jaya menangkap Cakra, mantan kader PSI.</p>]]></description></item>
+      <item><title>UMP Jakarta 2027</title><description>Rp 6,1 Juta &amp;nbsp;&amp;nbsp; detikNews</description></item>
+      <item><title>No Summary Here</title></item>
+    </channel></rss>`;
+
+    const items = parseRssItems(xml);
+
+    expect(items[0]).toEqual({
+      title: 'Eks Kader PSI Ditangkap',
+      description: 'Polda Metro Jaya menangkap Cakra, mantan kader PSI.',
+    });
+    expect(items[1]!.description).toBe('Rp 6,1 Juta detikNews');
+    expect(items[2]!.description).toBe('');
+  });
+
+  it('appends summaries to topic headlines but skips ones that only repeat the title', () => {
+    const titles = ['Dasco Dijagokan Wapres', 'Dasco Wapres Pilihan', 'Wapres Dasco Disorot'];
+    const descriptions = [
+      'Pengamat Voxpol menilai loyalitas 35 tahun jadi nilai tambah.',
+      'Dasco Wapres Pilihan - detikNews',
+      '',
+    ];
+
+    const [topic] = extractTrendingTopics(titles, 1, descriptions);
+
+    expect(topic!.headlines).toContain(
+      'Dasco Dijagokan Wapres. Pengamat Voxpol menilai loyalitas 35 tahun jadi nilai tambah.',
+    );
+    expect(topic!.headlines).toContain('Dasco Wapres Pilihan');
+    expect(topic!.headlines).toContain('Wapres Dasco Disorot');
   });
 });

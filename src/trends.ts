@@ -57,23 +57,56 @@ function stripSourceSuffix(title: string): string {
  * Extract <item><title> values from an RSS/Atom document without a parser dep.
  * Handles CDATA and the entities that actually appear in the verified feeds.
  */
-export function parseRssTitles(xml: string): string[] {
-  const titles: string[] = [];
+export interface RssItem {
+  title: string;
+  /** Plain-text summary; '' when the feed has none. */
+  description: string;
+}
+
+const MAX_DESCRIPTION_CHARS = 280;
+
+function decodeEntities(text: string): string {
+  // &amp; first: feeds double-encode (Google News ships "&amp;nbsp;").
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;|&#160;/g, ' ');
+}
+
+function cleanDescription(raw: string): string {
+  const text = decodeEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'))
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= MAX_DESCRIPTION_CHARS) return text;
+  const cut = text.slice(0, MAX_DESCRIPTION_CHARS);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : cut.length)}…`;
+}
+
+/**
+ * Extract <item>/<entry> title + description without a parser dep. The
+ * description is what turns a 10-word headline into post material: Detik, CNN
+ * and Antara ship 1-2 sentence summaries with names, numbers and decisions.
+ */
+export function parseRssItems(xml: string): RssItem[] {
+  const items: RssItem[] = [];
   const itemBlocks = xml.match(/<(item|entry)\b[\s\S]*?<\/\1>/gi) ?? [];
   for (const block of itemBlocks) {
-    const match = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    if (!match?.[1]) continue;
-    const raw = match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
-    const decoded = raw
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#0?39;|&apos;/g, "'")
-      .trim();
-    if (decoded) titles.push(decoded);
+    const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    if (!titleMatch?.[1]) continue;
+    const title = decodeEntities(titleMatch[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim();
+    if (!title) continue;
+    const descMatch = block.match(/<(description|summary)[^>]*>([\s\S]*?)<\/\1>/i);
+    items.push({ title, description: descMatch?.[2] ? cleanDescription(descMatch[2]) : '' });
   }
-  return titles;
+  return items;
+}
+
+export function parseRssTitles(xml: string): string[] {
+  return parseRssItems(xml).map((item) => item.title);
 }
 
 function tokenize(title: string): string[] {
@@ -100,7 +133,12 @@ const PHRASE_PROMOTION_RATIO = 0.6;
  * Rank 1-3 word terms that recur across distinct titles. Pure, so the scoring
  * is testable without network — same DI pattern as the rest of the pipeline.
  */
-export function extractTrendingTopics(titles: string[], maxTerms: number): TrendingTopic[] {
+export function extractTrendingTopics(
+  titles: string[],
+  maxTerms: number,
+  /** Summaries aligned with `titles`; appended to headlines as grounding detail. */
+  descriptions: string[] = [],
+): TrendingTopic[] {
   const termTitles = new Map<string, Set<number>>();
   const strippedTitles = titles.map(stripSourceSuffix);
 
@@ -160,7 +198,12 @@ export function extractTrendingTopics(titles: string[], maxTerms: number): Trend
     return {
       term: focusedTerm,
       titleHits: focusedSet.size,
-      headlines: [...focusedSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => strippedTitles[i]!),
+      headlines: [...focusedSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => {
+        const description = descriptions[i];
+        // Google News descriptions just repeat the title + related headlines.
+        const isRepeat = description && description.toLowerCase().startsWith(strippedTitles[i]!.toLowerCase());
+        return description && !isRepeat ? `${strippedTitles[i]}. ${description}` : strippedTitles[i]!;
+      }),
     };
   });
 }
@@ -219,6 +262,7 @@ export async function fetchTrendingTopics(
   fetchFn: FetchFn = fetch,
 ): Promise<TrendingTopic[]> {
   const titles: string[] = [];
+  const descriptions: string[] = [];
 
   for (const url of feedUrls) {
     try {
@@ -235,15 +279,16 @@ export async function fetchTrendingTopics(
         logger.warn('Trend feed returned non-OK status', { url, status: res.status });
         continue;
       }
-      const feedTitles = parseRssTitles(await res.text());
-      logger.debug('Trend feed fetched', { url, titles: feedTitles.length });
-      titles.push(...feedTitles);
+      const feedItems = parseRssItems(await res.text());
+      logger.debug('Trend feed fetched', { url, titles: feedItems.length });
+      titles.push(...feedItems.map((item) => item.title));
+      descriptions.push(...feedItems.map((item) => item.description));
     } catch (err) {
       logger.warn('Trend feed fetch failed', { url, error: (err as Error).message });
     }
   }
 
-  const topics = extractTrendingTopics(titles, maxTerms);
+  const topics = extractTrendingTopics(titles, maxTerms, descriptions);
   logger.info('Trending terms extracted', {
     feeds: feedUrls.length,
     titles: titles.length,
