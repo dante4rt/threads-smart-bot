@@ -113,3 +113,35 @@ describe('Threads token preflight', () => {
     }
   });
 });
+
+describe('Threads keyword search', () => {
+  it('requests explicit fields and TOP by default', async () => {
+    const { db, client } = setupNearExpiryToken();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: '1', text: 'hi' }] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client.keywordSearch('resign', 5);
+
+    const url = new URL(fetchMock.mock.calls[0]![0] as string);
+    expect(url.searchParams.get('fields')).toBe('id,text,timestamp,username');
+    expect(url.searchParams.get('search_type')).toBe('TOP');
+    expect(url.searchParams.get('since')).toBeNull();
+    db.close();
+  });
+
+  it('switches to RECENT when the trend path asks for it', async () => {
+    const { db, client } = setupNearExpiryToken();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client.keywordSearch('kebakaran', 5, { searchType: 'RECENT' });
+
+    const url = new URL(fetchMock.mock.calls[0]![0] as string);
+    expect(url.searchParams.get('search_type')).toBe('RECENT');
+    db.close();
+  });
+});

@@ -178,6 +178,9 @@ export class OpenRouterClient {
         },
         body: JSON.stringify({
           model: this.config.openrouterModel,
+          // Explicit: an omitted stream flag is ambiguous on some self-hosted
+          // gateways (9router) and can yield SSE instead of JSON.
+          stream: false,
           messages,
           max_tokens: maxTokens,
           temperature,

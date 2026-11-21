@@ -343,6 +343,7 @@ export class ThreadsClient {
     const params = new URLSearchParams({
       q: query,
       search_type: options.searchType ?? 'TOP',
+      fields: 'id,text,timestamp,username',
       limit: String(limit),
     });
 

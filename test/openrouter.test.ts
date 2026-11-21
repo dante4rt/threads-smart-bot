@@ -101,6 +101,10 @@ describe('OpenRouterClient.chat budget escalation', () => {
     );
     expect(requestedMaxTokens(fetchMock.mock.calls[0])).toBe(1000);
     expect(requestedMaxTokens(fetchMock.mock.calls[1])).toBe(2000);
+    // Every attempt must request JSON; an omitted stream flag is ambiguous in 9router.
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(JSON.parse((init as RequestInit).body as string).stream).toBe(false);
+    }
   });
 
   it('gives up after bounded escalations instead of looping', async () => {
