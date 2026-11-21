@@ -473,7 +473,10 @@ export async function runPipeline(
     // landed, not just what they said.
     await refreshRecentMetrics(threadsClient, db);
 
-    const recentPosts = getRecentPosts(db, 10);
+    // 20, not 10: at 2 posts/day a 10-post window is 5 days, and the live feed
+    // repeated whole subjects (Netflix watchlist, Google Maps menu photos,
+    // remote-job hours) 6-12 days apart — inside a month, outside the window.
+    const recentPosts = getRecentPosts(db, 20);
     const promptSourcePosts = buildBalancedSourcePosts(
       queryResults,
       config.maxSourcePostsPerQuery,

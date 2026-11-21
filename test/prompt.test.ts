@@ -573,3 +573,77 @@ describe('SYSTEM_PROMPT shape contract', () => {
     expect(SYSTEM_PROMPT).toContain('never "kemarin gue makan di warteg deket rumah"');
   });
 });
+
+describe('niche floor and closer-ratio guards (Nov 2026 engagement audit)', () => {
+  const sourcePosts: ThreadsPost[] = [
+    { id: '1', text: 'Trending tech post' },
+    { id: '2', text: 'Another viral post' },
+  ];
+
+  const lifestylePost = (id: number, text: string): Post => ({
+    id,
+    source_query: 'trending',
+    source_post_ids: null,
+    generated_text: text,
+    threads_post_id: `tp-${id}`,
+    published_at: `2026-01-0${id}T09:00:00Z`,
+  });
+
+  // Verbatim genre from the live feed that produced 52 interactions on 11K views:
+  // consumer pet peeves with no tech, crypto, or builder content at all.
+  const allLifestyleFeed: Post[] = [
+    lifestylePost(1, 'Wishlist Netflix gue sederhana, filter ceritanya kelar.'),
+    lifestylePost(2, 'Foto menu di Google Maps lebih guna daripada 20 foto neon sign.'),
+    lifestylePost(3, 'Label urgent di tiap chat WhatsApp itu caps lock versi manajemen.'),
+    lifestylePost(4, 'Notifikasi promo sama update paket harus punya saklar terpisah.'),
+    lifestylePost(5, 'Badge Open to Work di LinkedIn, lo pasang sebelum resign?'),
+  ];
+
+  it('fires the niche floor when zero recent posts touch tech/crypto/builder topics', () => {
+    const [, user] = buildMessages(sourcePosts, allLifestyleFeed, ['trending']);
+
+    expect(user).toContain('generic consumer-lifestyle');
+    expect(user).toContain('TOPIC SLOT THIS ROUND');
+  });
+
+  it('does not fire the floor when the feed already has a niche post', () => {
+    const mixed = [
+      ...allLifestyleFeed.slice(0, 4),
+      lifestylePost(5, 'Cursor baru rilis fitur orchestrate buat multi-agent refactor.'),
+    ];
+
+    const [, user] = buildMessages(sourcePosts, mixed, ['trending']);
+
+    expect(user).not.toContain('generic consumer-lifestyle');
+  });
+
+  it('does not fire the floor on a short feed (under 5 posts)', () => {
+    const [, user] = buildMessages(sourcePosts, allLifestyleFeed.slice(0, 4), ['trending']);
+
+    expect(user).not.toContain('generic consumer-lifestyle');
+  });
+
+  it('caps question closers across the window, not only two in a row', () => {
+    // Alternating pattern defeats the old consecutive-only check: 3 of 6 end
+    // with a question but never twice in a row.
+    const feed = [
+      lifestylePost(1, 'Lo biasanya nyari apa dulu di ulasan?'),
+      lifestylePost(2, 'Filter ceritanya kelar itu wajib di Netflix.'),
+      lifestylePost(3, 'Benefit apa yang pernah bikin lo ambil gaji lebih kecil?'),
+      lifestylePost(4, 'Angka take home pay gede tapi lembur tuh gak sebanding.'),
+      lifestylePost(5, 'Lo tulis paket lengkap atau angka pembuka aja?'),
+      lifestylePost(6, 'Form order jasa desain mesti pisah kolom deadline.'),
+    ];
+
+    const [, user] = buildMessages(sourcePosts, feed, ['trending']);
+
+    expect(user).toContain('engagement fishing');
+    expect(user).toContain('MUST end on a statement or opinion');
+  });
+
+  it('system prompt allows public-policy commentary with the safety rail', () => {
+    expect(SYSTEM_PROMPT).toContain('kebijakan publik');
+    expect(SYSTEM_PROMPT).toContain('politics safety');
+    expect(SYSTEM_PROMPT).toContain('NEVER assert an accusation');
+  });
+});

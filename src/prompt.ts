@@ -11,7 +11,9 @@ Food is allowed as a TOPIC (prices, delivery apps, what is trending, how places 
 
 **Goal signals (in order):** conversational replies (bales-balesan) > shares > profile curiosity > follows. 10 orang debat di kolom reply jauh lebih berharga daripada 100 like pasif.
 
-**Topic strategy:** Trend-first, AI is the EXCEPTION. React to what is currently moving on Threads: local internet chatter, career, startup/business, Web3/crypto, creator economy, public tech launches, culture-adjacent dev life. AI is only allowed when there is a specific, named, fresh launch or event happening right now. A generic AI take ("AI gantiin kerjaan", "AI bikin standar naik", "skill di era AI") is BANNED. If the source posts have any non-AI angle, take it. Default away from AI, not toward it. Most posts should have nothing to do with AI.
+**Topic strategy:** Trend-first, AI is the EXCEPTION. React to what is currently moving on Threads: local internet chatter, current events and public policy (kebijakan publik, DPR/pemerintah decisions, harga/pajak/subsidi — the things Indonesian Threads actually argues about), career, startup/business, Web3/crypto, creator economy, public tech launches, culture-adjacent dev life. What is moving TODAY beats an evergreen pet peeve every time — a mild observation about apps or job ads that could have been posted any week this year is the weakest possible post. AI is only allowed when there is a specific, named, fresh launch or event happening right now.
+
+**Current events / politics safety:** commentary on public policy and government is allowed and encouraged when it is trending in the source posts, with hard limits. React to the discourse or to a checkable public fact from the sources; NEVER assert an accusation, motive, or wrongdoing of a named person as fact; no conspiracy framing; no inventing quotes, votes, or numbers. Opinion on the policy, the absurdity, or the process — not verdicts on people. A generic AI take ("AI gantiin kerjaan", "AI bikin standar naik", "skill di era AI") is BANNED. If the source posts have any non-AI angle, take it. Default away from AI, not toward it. Most posts should have nothing to do with AI.
 
 **STEPPS filter (silent):** Before writing, pick 1-2 signals from Social Currency, Triggers, Emotion, Public visibility, Practical Value, Stories. Use them to choose the angle. Do NOT mention STEPPS in the output.
 
@@ -341,9 +343,17 @@ function buildStyleVarietySection(recentPosts: Post[]): string {
       `⛔ OPENER: ${gueOpeners}/${recentPosts.length} of my recent posts open with "Gue". This post MUST NOT start with "Gue" (no "Gue lagi", "Gue baru", "Gue notice"). Open with the thing, the news, a reaction, or a claim instead.`,
     );
   }
+  const questionCloserWindow = recentPosts.slice(0, 6);
+  const questionClosers = questionCloserWindow.filter((post) =>
+    endsWithQuestion(post.generated_text),
+  ).length;
   if (lastTwoEndWithQuestion) {
     rules.push(
       '⛔ CLOSER: my last posts all end with a question. This post MUST end on a statement or opinion, not a question.',
+    );
+  } else if (questionCloserWindow.length >= 4 && questionClosers >= 3) {
+    rules.push(
+      `⛔ CLOSER: ${questionClosers} of my last ${questionCloserWindow.length} posts end with a question — the feed reads as engagement fishing. This post MUST end on a statement or opinion someone could disagree with, not a question.`,
     );
   }
 
@@ -385,6 +395,18 @@ function buildTopicMixSection(recentPosts: Post[]): string {
     return `${aiFocusedPosts}/${recentPosts.length} recent posts look AI/tooling-coded. AI is overused right now. Prefer a non-AI trend from the source posts unless there is a specific fresh AI launch/event.
 
 ⛔ TOPIC SLOT THIS ROUND: You have posted too much AI content lately. Pick a NON-AI topic from the source posts — career, money, creator life, local culture, side projects, UMKM, gaji, freelance, anything grounded and non-tech-tool. Only use AI as a topic if there is a specific fresh launch or event in the source posts that is clearly trending. "AI lagi rame" in general is not enough — it must be a named, specific thing.`;
+  }
+
+  // Floor, not just caps: the three overuse guards above have throttled tech so
+  // hard that the live feed went 100% consumer-lifestyle, while the account's
+  // own top posts (measured via Insights, Nov 2026) were niche builder content
+  // — a hiring post, a crypto signal channel, a government-data side project.
+  // When the entire window has zero niche posts, the caps have overshot.
+  const nicheTotal = aiFocusedPosts + cryptoFocusedPosts + devFocusedPosts;
+  if (recentPosts.length >= 5 && nicheTotal === 0) {
+    return `0/${recentPosts.length} recent posts touch tech, crypto, or builder topics — the feed has drifted into generic consumer-lifestyle observations, which this account's audience (tech/AI-interest viewers) scrolls past.
+
+⛔ TOPIC SLOT THIS ROUND: Pick the most concrete tech, crypto, builder, or data-backed current-events angle available in the source posts — a tool, a launch, an on-chain event, a policy/number people are arguing about, something you built. Frame it for a general reader (the money, the decision, the absurdity), not as dev inside-baseball. If the source posts have no such angle at all, take the strongest trending topic instead, but do not write another generic daily-life pet peeve.`;
   }
 
   if (isDevOverused) {
