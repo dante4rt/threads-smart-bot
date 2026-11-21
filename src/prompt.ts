@@ -119,9 +119,11 @@ export function buildUserMessage(
     ? `\n\n**Account topic boundary (zero tolerance):** Never write about: ${options.excludedTopics.join(', ')}. Do not use it as a comparison, a joke, a source example, or a fallback topic.`
     : '';
   const authorContextSection = buildAuthorContextSection(options.authorContext, guardWindow);
-  const trendingSection = options.trendingQueries && options.trendingQueries.length > 0
-    ? `\n\n**Trending RIGHT NOW (from Indonesian news/search, confirmed live on Threads):** ${options.trendingQueries.join(', ')}. Source posts fetched for these are the freshest material you have — prefer one of these topics if the posts give you a concrete angle. A take on today's conversation beats an evergreen observation.`
-    : '';
+  const trendingSection = options.trendMandate
+    ? `\n\n**⛔ TREND MANDATE THIS ROUND (hard requirement):** "${options.trendMandate.term}" is in ${options.trendMandate.titleHits} Indonesian headlines right now. This post MUST react to this topic — not an adjacent evergreen angle. Ground every factual claim ONLY in the [Berita hari ini] source posts and other source posts below; the angle and opinion are yours. If the story is a tragedy or disaster, lead with the human side or practical help — no jokes, no metaphor-play on victims. The politics safety rules still apply in full.`
+    : options.trendingQueries && options.trendingQueries.length > 0
+      ? `\n\n**Trending RIGHT NOW (from Indonesian news/search, confirmed live on Threads):** ${options.trendingQueries.join(', ')}. Source posts fetched for these are the freshest material you have — prefer one of these topics if the posts give you a concrete angle. A take on today's conversation beats an evergreen observation.`
+      : '';
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -212,6 +214,8 @@ interface PromptBuildOptions {
   excludedTopics?: string[];
   /** Crawl queries that came from the live trend trigger and returned posts. */
   trendingQueries?: string[];
+  /** A trend hot enough across news feeds that this post MUST react to it. */
+  trendMandate?: { term: string; titleHits: number };
 }
 
 function resolvePromptDateContext(

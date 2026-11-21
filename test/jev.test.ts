@@ -33,7 +33,7 @@ function setupPipeline() {
     searchQueries: ['trending'], categoryQueries: { general: ['trending'] },
     minSourcePosts: 1, minSourceQueries: 1, maxSourcePostsPerQuery: 1,
     postTimes: ['13:30'], timezone: 'Asia/Jakarta', topicTags: {}, defaultTopicTag: '',
-    trendFeeds: [], maxTrendQueries: 3,
+    trendFeeds: [], maxTrendQueries: 3, trendMandateMinTitles: 4,
     unsplashAccessKey: undefined, authorContext: '', excludedTopics: [], dryRun: false,
   };
   vi.spyOn(ThreadsClient.prototype, 'maybeRefreshToken').mockResolvedValue(undefined);

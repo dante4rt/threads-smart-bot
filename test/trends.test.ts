@@ -1,8 +1,8 @@
 // test/trends.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { parseRssTitles, extractTrendingTerms, fetchTrendingTerms } from '../src/trends.js';
-import { mergeTrendQueries } from '../src/pipeline.js';
+import { parseRssTitles, extractTrendingTopics, fetchTrendingTopics } from '../src/trends.js';
+import { mergeTrendQueries, buildHeadlineSourcePosts } from '../src/pipeline.js';
 
 const RSS_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -27,8 +27,11 @@ describe('parseRssTitles', () => {
   });
 });
 
-describe('extractTrendingTerms', () => {
-  it('ranks multi-word terms repeated across distinct titles', () => {
+describe('extractTrendingTopics', () => {
+  const terms = (titles: string[], max: number): string[] =>
+    extractTrendingTopics(titles, max).map((t) => t.term);
+
+  it('ranks multi-word terms repeated across distinct titles, with hit counts and headlines', () => {
     const titles = [
       'UU Perampasan Aset Disahkan DPR',
       'Polemik UU Perampasan Aset Berlanjut',
@@ -36,9 +39,11 @@ describe('extractTrendingTerms', () => {
       'Harga Beras Naik di Pasar',
     ];
 
-    const terms = extractTrendingTerms(titles, 3);
+    const topics = extractTrendingTopics(titles, 3);
 
-    expect(terms[0]).toBe('uu perampasan aset');
+    expect(topics[0]!.term).toBe('uu perampasan aset');
+    expect(topics[0]!.titleHits).toBe(3);
+    expect(topics[0]!.headlines).toContain('UU Perampasan Aset Disahkan DPR');
   });
 
   it('drops terms seen in only one title and headline glue words', () => {
@@ -47,13 +52,11 @@ describe('extractTrendingTerms', () => {
       'Harga Beras Naik Lagi Kata Pedagang',
     ];
 
-    const terms = extractTrendingTerms(titles, 5);
+    const picked = terms(titles, 5);
 
-    expect(terms).toContain('harga beras');
-    // "sebut"/"kata" are headline verbs, not topics.
-    expect(terms.join(' ')).not.toMatch(/\bsebut\b|\bkata\b/);
-    // "stabil" appears once only.
-    expect(terms).not.toContain('stabil');
+    expect(picked).toContain('harga beras');
+    expect(picked.join(' ')).not.toMatch(/\bsebut\b|\bkata\b/);
+    expect(picked).not.toContain('stabil');
   });
 
   it('dedupes substrings of an already-picked stronger term', () => {
@@ -63,14 +66,30 @@ describe('extractTrendingTerms', () => {
       'Jadwal Bansos BPNT Sembako',
     ];
 
-    const terms = extractTrendingTerms(titles, 5);
+    const picked = terms(titles, 5);
 
-    const bpnt = terms.filter((t) => t.includes('bpnt'));
-    expect(bpnt).toHaveLength(1);
+    expect(picked.filter((t) => t.includes('bpnt'))).toHaveLength(1);
+  });
+
+  it('promotes a phrase over its unigram when the phrase covers most of its headlines', () => {
+    // Live miss 2026-11-21: "kebakaran" (4 hits) beat "kebakaran baduy" (3 hits)
+    // while the Baduy fire was the actual story.
+    const titles = [
+      'Kebakaran Baduy Hanguskan Puluhan Rumah',
+      'Korban Kebakaran Baduy Butuh Bantuan',
+      'Donasi untuk Kebakaran Baduy Mengalir',
+      'Kebakaran Pasar di Medan Padam',
+      'Harga Beras Naik di Pasar',
+    ];
+
+    const topics = extractTrendingTopics(titles, 3);
+
+    expect(topics[0]!.term).toBe('kebakaran baduy');
+    expect(topics.map((t) => t.term)).not.toContain('kebakaran');
   });
 });
 
-describe('fetchTrendingTerms', () => {
+describe('fetchTrendingTopics', () => {
   const okResponse = (body: string): Response =>
     ({ ok: true, status: 200, text: () => Promise.resolve(body) }) as unknown as Response;
 
@@ -80,22 +99,22 @@ describe('fetchTrendingTerms', () => {
       return Promise.resolve(okResponse(RSS_FIXTURE));
     };
 
-    const terms = await fetchTrendingTerms(['https://dead.example/rss', 'https://ok.example/rss'], 3, fetchFn);
+    const topics = await fetchTrendingTopics(['https://dead.example/rss', 'https://ok.example/rss'], 3, fetchFn);
 
-    expect(terms).toContain('uu perampasan aset');
+    expect(topics.map((t) => t.term)).toContain('uu perampasan aset');
   });
 
   it('returns empty on all-failing feeds instead of throwing', async () => {
     const fetchFn = (): Promise<Response> => Promise.reject(new Error('down'));
 
-    await expect(fetchTrendingTerms(['https://a/rss', 'https://b/rss'], 3, fetchFn)).resolves.toEqual([]);
+    await expect(fetchTrendingTopics(['https://a/rss', 'https://b/rss'], 3, fetchFn)).resolves.toEqual([]);
   });
 
   it('skips non-OK responses', async () => {
     const fetchFn = (): Promise<Response> =>
       Promise.resolve({ ok: false, status: 503, text: () => Promise.resolve('') } as unknown as Response);
 
-    await expect(fetchTrendingTerms(['https://a/rss'], 3, fetchFn)).resolves.toEqual([]);
+    await expect(fetchTrendingTopics(['https://a/rss'], 3, fetchFn)).resolves.toEqual([]);
   });
 });
 
@@ -119,5 +138,20 @@ describe('mergeTrendQueries', () => {
 
     expect(crawlQueries).toEqual(['a', 'b']);
     expect(trendQuerySet.size).toBe(0);
+  });
+});
+
+describe('buildHeadlineSourcePosts', () => {
+  it('turns headlines into labeled synthetic source posts', () => {
+    const posts = buildHeadlineSourcePosts({
+      term: 'kebakaran baduy',
+      titleHits: 3,
+      headlines: ['Kebakaran Baduy Hanguskan Puluhan Rumah', 'Donasi Mengalir'],
+    });
+
+    expect(posts).toHaveLength(2);
+    expect(posts[0]!.id).toBe('news-1');
+    expect(posts[0]!.text).toBe('[Berita hari ini] Kebakaran Baduy Hanguskan Puluhan Rumah');
+    expect(posts[0]!.username).toBe('news-rss');
   });
 });

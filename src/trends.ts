@@ -84,15 +84,28 @@ function tokenize(title: string): string[] {
     .filter((token) => token.length >= 2 && !/^\d+$/.test(token));
 }
 
+export interface TrendingTopic {
+  term: string;
+  /** Number of distinct headlines the term appeared in — the heat measure. */
+  titleHits: number;
+  /** Sample headlines containing the term, for grounding the post on. */
+  headlines: string[];
+}
+
+const MAX_HEADLINES_PER_TOPIC = 5;
+/** A phrase replaces its own unigram when it covers this share of its titles. */
+const PHRASE_PROMOTION_RATIO = 0.6;
+
 /**
  * Rank 1-3 word terms that recur across distinct titles. Pure, so the scoring
  * is testable without network — same DI pattern as the rest of the pipeline.
  */
-export function extractTrendingTerms(titles: string[], maxTerms: number): string[] {
+export function extractTrendingTopics(titles: string[], maxTerms: number): TrendingTopic[] {
   const termTitles = new Map<string, Set<number>>();
+  const strippedTitles = titles.map(stripSourceSuffix);
 
-  titles.forEach((rawTitle, titleIndex) => {
-    const tokens = tokenize(stripSourceSuffix(rawTitle));
+  strippedTitles.forEach((title, titleIndex) => {
+    const tokens = tokenize(title);
     const seen = new Set<string>();
     for (let n = 1; n <= 3; n++) {
       for (let i = 0; i + n <= tokens.length; i++) {
@@ -119,14 +132,34 @@ export function extractTrendingTerms(titles: string[], maxTerms: number): string
       return b[0].split(' ').length - a[0].split(' ').length;
     });
 
-  const picked: string[] = [];
-  for (const [term] of ranked) {
+  // A bare unigram outranks its own phrase by raw count ("kebakaran" beat
+  // "kebakaran baduy" while Baduy was the actual story — live miss, 2026-11-21).
+  // When a phrase covers most of a unigram's headlines, the phrase IS the topic.
+  const promote = (term: string, titleSet: Set<number>): [string, Set<number>] => {
+    if (term.includes(' ')) return [term, titleSet];
+    const phrase = ranked.find(
+      ([candidate, candidateSet]) =>
+        candidate.includes(' ') &&
+        candidate.split(' ').includes(term) &&
+        candidateSet.size >= Math.ceil(titleSet.size * PHRASE_PROMOTION_RATIO),
+    );
+    return phrase ? [phrase[0], phrase[1]] : [term, titleSet];
+  };
+
+  const picked: Array<[string, Set<number>]> = [];
+  for (const entry of ranked) {
     if (picked.length >= maxTerms) break;
+    const [term, titleSet] = promote(entry[0], entry[1]);
     // Skip terms contained in (or containing) an already-picked stronger term.
-    if (picked.some((p) => p.includes(term) || term.includes(p))) continue;
-    picked.push(term);
+    if (picked.some(([p]) => p.includes(term) || term.includes(p))) continue;
+    picked.push([term, titleSet]);
   }
-  return picked;
+
+  return picked.map(([term, titleSet]) => ({
+    term,
+    titleHits: titleSet.size,
+    headlines: [...titleSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => strippedTitles[i]!),
+  }));
 }
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -137,11 +170,11 @@ export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
  * and the caller falls back to the static query pool. Trends must never be the
  * reason a run fails.
  */
-export async function fetchTrendingTerms(
+export async function fetchTrendingTopics(
   feedUrls: string[],
   maxTerms: number,
   fetchFn: FetchFn = fetch,
-): Promise<string[]> {
+): Promise<TrendingTopic[]> {
   const titles: string[] = [];
 
   for (const url of feedUrls) {
@@ -167,7 +200,11 @@ export async function fetchTrendingTerms(
     }
   }
 
-  const terms = extractTrendingTerms(titles, maxTerms);
-  logger.info('Trending terms extracted', { feeds: feedUrls.length, titles: titles.length, terms });
-  return terms;
+  const topics = extractTrendingTopics(titles, maxTerms);
+  logger.info('Trending terms extracted', {
+    feeds: feedUrls.length,
+    titles: titles.length,
+    terms: topics.map((t) => `${t.term} (${t.titleHits})`),
+  });
+  return topics;
 }

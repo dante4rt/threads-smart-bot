@@ -702,3 +702,31 @@ describe('guard window stays at 10 posts when callers pass more', () => {
     expect(user).toContain('Post unik nomor 20.');
   });
 });
+
+describe('trend mandate section', () => {
+  const sourcePosts: ThreadsPost[] = [
+    { id: 'news-1', text: '[Berita hari ini] Kebakaran Baduy Hanguskan Puluhan Rumah' },
+  ];
+
+  it('injects a hard mandate with grounding and tragedy rules', () => {
+    const [, user] = buildMessages(sourcePosts, [], ['kebakaran baduy'], {
+      trendMandate: { term: 'kebakaran baduy', titleHits: 5 },
+    });
+
+    expect(user).toContain('TREND MANDATE THIS ROUND');
+    expect(user).toContain('"kebakaran baduy" is in 5 Indonesian headlines');
+    expect(user).toContain('MUST react to this topic');
+    expect(user).toContain('[Berita hari ini]');
+    expect(user).toContain('no jokes');
+  });
+
+  it('mandate replaces the soft trending preference', () => {
+    const [, user] = buildMessages(sourcePosts, [], ['kebakaran baduy'], {
+      trendingQueries: ['kebakaran baduy'],
+      trendMandate: { term: 'kebakaran baduy', titleHits: 5 },
+    });
+
+    expect(user).toContain('TREND MANDATE THIS ROUND');
+    expect(user).not.toContain('Trending RIGHT NOW');
+  });
+});

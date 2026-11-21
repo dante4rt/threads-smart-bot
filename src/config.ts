@@ -88,6 +88,14 @@ function parsePositiveInt(val: string, key: string): number {
   return parsed;
 }
 
+function parseNonNegativeInt(val: string, key: string): number {
+  const parsed = Number.parseInt(val, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new ConfigError(`${key} must be a non-negative integer (0 disables)`);
+  }
+  return parsed;
+}
+
 function parseUnitInterval(val: string, key: string): number {
   const parsed = Number(val);
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
@@ -215,6 +223,13 @@ export interface Config {
   trendFeeds: string[];
   /** How many trending terms are prepended to the day's query pool. */
   maxTrendQueries: number;
+  /**
+   * A trend seen in at least this many distinct headlines becomes a hard topic
+   * mandate for the post, grounded on those headlines. 0 disables the mandate
+   * (trends stay a soft preference). The Threads API cannot gate this: its
+   * search index returns 0 for the hottest news terms (probed 2026-11-21).
+   */
+  trendMandateMinTitles: number;
 
   unsplashAccessKey: string | undefined;
   authorContext: string;
@@ -324,6 +339,10 @@ export function getConfig(): Config {
       .map((url) => url.trim())
       .filter(Boolean),
     maxTrendQueries: parsePositiveInt(optionalEnv('MAX_TREND_QUERIES', '3'), 'MAX_TREND_QUERIES'),
+    trendMandateMinTitles: parseNonNegativeInt(
+      optionalEnv('TREND_MANDATE_MIN_TITLES', '4'),
+      'TREND_MANDATE_MIN_TITLES',
+    ),
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     authorContext: optionalEnv('AUTHOR_CONTEXT', ''),

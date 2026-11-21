@@ -383,6 +383,7 @@ describe('runPipeline account topic boundary', () => {
       timezone: 'Asia/Jakarta',
       trendFeeds: [],
       maxTrendQueries: 3,
+      trendMandateMinTitles: 4,
       unsplashAccessKey: undefined,
       authorContext: '',
       excludedTopics: ['Arbitrum'],

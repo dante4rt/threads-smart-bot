@@ -19,7 +19,8 @@ import { buildMessages } from './prompt.js';
 import { generateGroundedPost, verifyPostGrounding } from './fact-check.js';
 import { evaluateCaption } from './jev.js';
 import { findImage } from './media.js';
-import { fetchTrendingTerms } from './trends.js';
+import { fetchTrendingTopics } from './trends.js';
+import type { TrendingTopic } from './trends.js';
 import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
 import type { Post } from './db.js';
@@ -297,6 +298,19 @@ export function mergeTrendQueries(
   };
 }
 
+/**
+ * Headlines become grounding material: synthetic source posts the prompt and
+ * the fact-check judge both see, so a mandated trend post can only assert what
+ * the news actually says — even when the Threads API returns zero posts for it.
+ */
+export function buildHeadlineSourcePosts(topic: TrendingTopic): ThreadsPost[] {
+  return topic.headlines.map((headline, i) => ({
+    id: `news-${i + 1}`,
+    text: `[Berita hari ini] ${headline}`,
+    username: 'news-rss',
+  }));
+}
+
 export async function collectSourcePosts(
   searchQueries: string[],
   minSourcePosts: number,
@@ -468,10 +482,10 @@ export async function runPipeline(
 
     // Trend trigger: what is Indonesia talking about right now. Fail-soft — a
     // dead feed or a failing trend query must never cost the run.
-    let trendTerms: string[] = [];
+    let trendTopics: TrendingTopic[] = [];
     if (config.trendFeeds.length > 0) {
       try {
-        trendTerms = await fetchTrendingTerms(config.trendFeeds, config.maxTrendQueries * 2);
+        trendTopics = await fetchTrendingTopics(config.trendFeeds, config.maxTrendQueries * 2);
       } catch (err) {
         logger.warn('Trend detection failed; crawling static pool only', {
           error: (err as Error).message,
@@ -479,11 +493,29 @@ export async function runPipeline(
       }
     }
     const { crawlQueries, trendQuerySet } = mergeTrendQueries(
-      trendTerms,
+      trendTopics.map((topic) => topic.term),
       dailyQueryPool,
       config.excludedTopics,
       config.maxTrendQueries,
     );
+
+    // Hard mandate: a topic hot enough across feeds gets the post, grounded on
+    // its own headlines. Gated on RSS heat, not on Threads API confirmation —
+    // the API's search index returns 0 for the hottest news terms.
+    const mandateTopic =
+      config.trendMandateMinTitles > 0
+        ? trendTopics.find(
+            (topic) =>
+              trendQuerySet.has(topic.term.toLowerCase()) &&
+              topic.titleHits >= config.trendMandateMinTitles,
+          )
+        : undefined;
+    if (mandateTopic) {
+      logger.info('Trend mandate active', {
+        term: mandateTopic.term,
+        titleHits: mandateTopic.titleHits,
+      });
+    }
 
     const searchWithTrendMode = async (query: string, limit: number): Promise<ThreadsPost[]> => {
       if (!trendQuerySet.has(query.toLowerCase())) {
@@ -553,11 +585,17 @@ export async function runPipeline(
     const confirmedTrendQueries = successfulQueries.filter((q) =>
       trendQuerySet.has(q.toLowerCase()),
     );
-    const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries, {
+    // Mandated topic's headlines join the source posts so the prompt AND the
+    // grounding judge share the same material.
+    const craftSourcePosts = mandateTopic
+      ? [...promptSourcePosts, ...buildHeadlineSourcePosts(mandateTopic)]
+      : promptSourcePosts;
+    const [systemPrompt, userMessage] = buildMessages(craftSourcePosts, recentPosts, successfulQueries, {
       timezone: config.timezone,
       authorContext: config.authorContext || undefined,
       excludedTopics: config.excludedTopics,
       trendingQueries: confirmedTrendQueries,
+      trendMandate: mandateTopic,
     });
 
     logger.info('Craft stage', {
@@ -581,7 +619,7 @@ export async function runPipeline(
           { role: 'user', content: userMessage },
           ...(jevFeedback ? [{ role: 'user' as const, content: jevFeedback }] : []),
         ],
-        promptSourcePosts,
+        craftSourcePosts,
         (messages, maxTokens, temperature) =>
           withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
       );
@@ -643,7 +681,7 @@ export async function runPipeline(
       if (candidate !== grounded.text) {
         const finalVerdict = await verifyPostGrounding(
           candidate,
-          promptSourcePosts,
+          craftSourcePosts,
           (messages, maxTokens, temperature) =>
             withRetry(() => openRouterClient.chat(messages, maxTokens, temperature)),
         );
