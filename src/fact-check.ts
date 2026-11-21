@@ -30,6 +30,7 @@ export const FACT_CHECK_SYSTEM_PROMPT = `You are a strict fact-checking gate for
 Flag every claim in the DRAFT that asserts a specific, externally verifiable real-world fact that is NOT directly supported by the SOURCE POSTS. Verifiable facts include:
 - A named brand/company/product doing anything: launching a product, selling somewhere (Indomaret, Alfamart, marketplaces), setting a price, running a promo, partnership, funding, acquisition, expansion, event.
 - A personal sighting or purchase of a named brand's product ("nemu di rak", "kemarin beli", "liat di toko").
+- A personal plan, intention, or commitment to act on a real-world event: donating, helping victims, sending goods, volunteering, attending ("mau bantu korban", "gue mau donasi", "kirim barang", "gue ikut turun"). The source posts can never support what the author personally plans to do.
 - Any specific number, price, date, or location tied to a named real-world entity.
 
 NOT violations:

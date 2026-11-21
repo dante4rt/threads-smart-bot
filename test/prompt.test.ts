@@ -730,3 +730,15 @@ describe('trend mandate section', () => {
     expect(user).not.toContain('Trending RIGHT NOW');
   });
 });
+
+describe('no invented pledges', () => {
+  it('mandate and system prompt forbid fabricated personal plans', () => {
+    const [system, user] = buildMessages([{ id: 'news-1', text: '[Berita hari ini] x' }], [], ['x'], {
+      trendMandate: { term: 'kebakaran', titleHits: 13 },
+    });
+
+    expect(user).toContain('NEVER invent a personal plan');
+    expect(user).toContain('do not pledge');
+    expect(system).toContain('NEVER invent a personal plan or commitment');
+  });
+});

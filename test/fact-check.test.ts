@@ -191,3 +191,10 @@ describe('buildRegenerationFeedback', () => {
     expect(feedback).toMatch(/do not restate/i);
   });
 });
+
+describe('judge flags invented pledges', () => {
+  it('lists personal plans to help as a verifiable violation class', () => {
+    expect(FACT_CHECK_SYSTEM_PROMPT).toContain('personal plan, intention, or commitment');
+    expect(FACT_CHECK_SYSTEM_PROMPT).toContain('mau bantu korban');
+  });
+});
