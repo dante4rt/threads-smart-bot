@@ -508,7 +508,12 @@ export async function runPipeline(
     let trendTopics: TrendingTopic[] = [];
     if (config.trendFeeds.length > 0) {
       try {
-        trendTopics = await fetchTrendingTopics(config.trendFeeds, config.maxTrendQueries * 2);
+        trendTopics = await fetchTrendingTopics(
+          config.trendFeeds,
+          config.maxTrendQueries * 2,
+          fetch,
+          config.trendPopularPages,
+        );
       } catch (err) {
         logger.warn('Trend detection failed; crawling static pool only', {
           error: (err as Error).message,

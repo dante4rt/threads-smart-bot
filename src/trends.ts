@@ -119,7 +119,10 @@ function tokenize(title: string): string[] {
 
 export interface TrendingTopic {
   term: string;
-  /** Number of distinct headlines the term appeared in — the heat measure. */
+  /**
+   * Heat: distinct headlines the term appeared in, with most-read headlines
+   * counted extra (see POPULAR_TITLE_WEIGHT).
+   */
   titleHits: number;
   /** Sample headlines containing the term, for grounding the post on. */
   headlines: string[];
@@ -138,8 +141,12 @@ export function extractTrendingTopics(
   maxTerms: number,
   /** Summaries aligned with `titles`; appended to headlines as grounding detail. */
   descriptions: string[] = [],
+  /** Heat weight per title, aligned with `titles`; missing entries count 1. */
+  weights: number[] = [],
 ): TrendingTopic[] {
   const termTitles = new Map<string, Set<number>>();
+  const heat = (titleSet: Set<number>): number =>
+    [...titleSet].reduce((sum, i) => sum + (weights[i] ?? 1), 0);
   const strippedTitles = titles.map(stripSourceSuffix);
 
   strippedTitles.forEach((title, titleIndex) => {
@@ -165,7 +172,8 @@ export function extractTrendingTopics(
       titleSet.size >= (term.includes(' ') ? MIN_TITLE_HITS : MIN_UNIGRAM_HITS),
     )
     .sort((a, b) => {
-      if (b[1].size !== a[1].size) return b[1].size - a[1].size;
+      const heatDiff = heat(b[1]) - heat(a[1]);
+      if (heatDiff !== 0) return heatDiff;
       // Same spread: prefer the more specific (longer) term.
       return b[0].split(' ').length - a[0].split(' ').length;
     });
@@ -197,7 +205,7 @@ export function extractTrendingTopics(
     const [focusedTerm, focusedSet] = focusOnDominantStory(term, titleSet, strippedTitles);
     return {
       term: focusedTerm,
-      titleHits: focusedSet.size,
+      titleHits: heat(focusedSet),
       headlines: [...focusedSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => {
         const description = descriptions[i];
         // Google News descriptions just repeat the title + related headlines.
@@ -251,6 +259,39 @@ function focusOnDominantStory(
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 /**
+ * Most-read headlines count this much in the heat score. Publish counts say
+ * what newsrooms cover; most-read lists say what people actually click, which
+ * tracks social virality more closely.
+ */
+export const POPULAR_TITLE_WEIGHT = 2;
+const MAX_POPULAR_TITLES = 15;
+
+/**
+ * Detik's /terpopuler page (HTML, no RSS exists — probed 2026-11-21). Titles
+ * sit in <h3 class="media__title"><a>…</a></h3>. Markup drift yields [] and a
+ * warning upstream, never an error.
+ */
+export function parseDetikPopular(html: string): string[] {
+  const titles: string[] = [];
+  const seen = new Set<string>();
+  const pattern = /<h3[^>]*class="[^"]*media__title[^"]*"[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/g;
+  for (const match of html.matchAll(pattern)) {
+    const title = decodeEntities(match[1]!.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (!title || seen.has(title)) continue;
+    seen.add(title);
+    titles.push(title);
+    if (titles.length >= MAX_POPULAR_TITLES) break;
+  }
+  return titles;
+}
+
+const BROWSER_HEADERS = {
+  // CNN Indonesia 403s the default Node UA (observed live); a browser UA passes.
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+};
+
+/**
  * Fetch all feeds, pool their titles, return the top trending terms.
  * Fail-soft everywhere: a dead feed is logged and skipped, zero feeds yield []
  * and the caller falls back to the static query pool. Trends must never be the
@@ -260,20 +301,18 @@ export async function fetchTrendingTopics(
   feedUrls: string[],
   maxTerms: number,
   fetchFn: FetchFn = fetch,
+  /** Most-read pages (Detik /terpopuler format), weighted POPULAR_TITLE_WEIGHT. */
+  popularPageUrls: string[] = [],
 ): Promise<TrendingTopic[]> {
   const titles: string[] = [];
   const descriptions: string[] = [];
+  const weights: number[] = [];
 
   for (const url of feedUrls) {
     try {
       const res = await fetchFn(url, {
         signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-        // CNN Indonesia 403s the default Node UA (observed live); a browser UA passes.
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          Accept: 'application/rss+xml, application/xml, text/xml, */*',
-        },
+        headers: { ...BROWSER_HEADERS, Accept: 'application/rss+xml, application/xml, text/xml, */*' },
       });
       if (!res.ok) {
         logger.warn('Trend feed returned non-OK status', { url, status: res.status });
@@ -283,15 +322,42 @@ export async function fetchTrendingTopics(
       logger.debug('Trend feed fetched', { url, titles: feedItems.length });
       titles.push(...feedItems.map((item) => item.title));
       descriptions.push(...feedItems.map((item) => item.description));
+      weights.push(...feedItems.map(() => 1));
     } catch (err) {
       logger.warn('Trend feed fetch failed', { url, error: (err as Error).message });
     }
   }
 
-  const topics = extractTrendingTopics(titles, maxTerms, descriptions);
+  let popularTitles = 0;
+  for (const url of popularPageUrls) {
+    try {
+      const res = await fetchFn(url, {
+        signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+        headers: { ...BROWSER_HEADERS, Accept: 'text/html' },
+      });
+      if (!res.ok) {
+        logger.warn('Popular page returned non-OK status', { url, status: res.status });
+        continue;
+      }
+      const pageTitles = parseDetikPopular(await res.text());
+      if (pageTitles.length === 0) {
+        logger.warn('Popular page parsed zero titles; markup may have changed', { url });
+        continue;
+      }
+      titles.push(...pageTitles);
+      descriptions.push(...pageTitles.map(() => ''));
+      weights.push(...pageTitles.map(() => POPULAR_TITLE_WEIGHT));
+      popularTitles += pageTitles.length;
+    } catch (err) {
+      logger.warn('Popular page fetch failed', { url, error: (err as Error).message });
+    }
+  }
+
+  const topics = extractTrendingTopics(titles, maxTerms, descriptions, weights);
   logger.info('Trending terms extracted', {
     feeds: feedUrls.length,
     titles: titles.length,
+    popularTitles,
     terms: topics.map((t) => `${t.term} (${t.titleHits})`),
   });
   return topics;

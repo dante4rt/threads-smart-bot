@@ -221,6 +221,12 @@ export interface Config {
    * the crawl then runs on the static category rotation alone.
    */
   trendFeeds: string[];
+  /**
+   * Most-read pages (Detik /terpopuler HTML format) whose headlines count extra
+   * in trend heat — what people click, not just what newsrooms publish.
+   * Empty disables.
+   */
+  trendPopularPages: string[];
   /** How many trending terms are prepended to the day's query pool. */
   maxTrendQueries: number;
   /**
@@ -335,6 +341,10 @@ export function getConfig(): Config {
       'TREND_FEEDS',
       'https://news.google.com/rss?hl=id&gl=ID&ceid=ID:id,https://news.detik.com/berita/rss,https://www.cnnindonesia.com/nasional/rss,https://www.antaranews.com/rss/terkini.xml,https://trends.google.com/trending/rss?geo=ID',
     )
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean),
+    trendPopularPages: optionalEnv('TREND_POPULAR_PAGES', 'https://www.detik.com/terpopuler')
       .split(',')
       .map((url) => url.trim())
       .filter(Boolean),

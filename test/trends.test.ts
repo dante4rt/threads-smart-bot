@@ -1,7 +1,7 @@
 // test/trends.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { parseRssTitles, parseRssItems, extractTrendingTopics, fetchTrendingTopics } from '../src/trends.js';
+import { parseRssTitles, parseRssItems, parseDetikPopular, extractTrendingTopics, fetchTrendingTopics, POPULAR_TITLE_WEIGHT } from '../src/trends.js';
 import { mergeTrendQueries, buildHeadlineSourcePosts, pickMandateTopic } from '../src/pipeline.js';
 
 const RSS_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
@@ -250,5 +250,25 @@ describe('RSS descriptions as grounding detail', () => {
     );
     expect(topic!.headlines).toContain('Dasco Wapres Pilihan');
     expect(topic!.headlines).toContain('Wapres Dasco Disorot');
+  });
+});
+
+describe('parseDetikPopular + most-read weighting', () => {
+  it('extracts titles from the terpopuler HTML list', () => {
+    const html = `
+      <h3 class="media__title"><a href="/x">Eks Kader PSI Ditangkap Polda Metro</a></h3>
+      <h3 class="media__title"><a href="/y">Gempa M 7,2 di Maluku</a></h3>
+      <h3 class="media__title"><a href="/x">Eks Kader PSI Ditangkap Polda Metro</a></h3>`;
+    const titles = parseDetikPopular(html);
+    expect(titles).toEqual(['Eks Kader PSI Ditangkap Polda Metro', 'Gempa M 7,2 di Maluku']);
+  });
+
+  it('counts a most-read title extra in a qualifying term heat', () => {
+    // "kader psi" spans 2 titles; the second is a most-read page (weight 2),
+    // so heat is 1 + 2 = 3, above a plain 2-title count.
+    const titles = ['Eks Kader PSI Ditangkap', 'Nasib Kader PSI Dibahas', 'Banjir NTT Meluas'];
+    const weighted = extractTrendingTopics(titles, 5, [], [1, POPULAR_TITLE_WEIGHT, 1]);
+    const psi = weighted.find((t) => t.term.includes('kader psi'));
+    expect(psi?.titleHits).toBe(3);
   });
 });
