@@ -299,6 +299,29 @@ export function mergeTrendQueries(
 }
 
 /**
+ * First accepted trend hot enough for a hard mandate, skipping any story a
+ * recent post already covered — "wapres" and "dasco" were the same story on
+ * 2026-11-21 and would have produced back-to-back duplicate posts. A recent
+ * post "covers" a topic when it contains every word of the topic term.
+ */
+export function pickMandateTopic(
+  topics: TrendingTopic[],
+  acceptedTerms: Set<string>,
+  minTitles: number,
+  recentTexts: string[],
+): TrendingTopic | undefined {
+  if (minTitles <= 0) return undefined;
+  const recentLower = recentTexts.map((text) => text.toLowerCase());
+  return topics.find((topic) => {
+    if (!acceptedTerms.has(topic.term.toLowerCase())) return false;
+    if (topic.titleHits < minTitles) return false;
+    const words = topic.term.toLowerCase().split(' ');
+    const alreadyCovered = recentLower.some((text) => words.every((w) => text.includes(w)));
+    return !alreadyCovered;
+  });
+}
+
+/**
  * Headlines become grounding material: synthetic source posts the prompt and
  * the fact-check judge both see, so a mandated trend post can only assert what
  * the news actually says — even when the Threads API returns zero posts for it.
@@ -502,14 +525,12 @@ export async function runPipeline(
     // Hard mandate: a topic hot enough across feeds gets the post, grounded on
     // its own headlines. Gated on RSS heat, not on Threads API confirmation —
     // the API's search index returns 0 for the hottest news terms.
-    const mandateTopic =
-      config.trendMandateMinTitles > 0
-        ? trendTopics.find(
-            (topic) =>
-              trendQuerySet.has(topic.term.toLowerCase()) &&
-              topic.titleHits >= config.trendMandateMinTitles,
-          )
-        : undefined;
+    const mandateTopic = pickMandateTopic(
+      trendTopics,
+      trendQuerySet,
+      config.trendMandateMinTitles,
+      getRecentPosts(db, 3).map((post) => post.generated_text),
+    );
     if (mandateTopic) {
       logger.info('Trend mandate active', {
         term: mandateTopic.term,

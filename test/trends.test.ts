@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseRssTitles, extractTrendingTopics, fetchTrendingTopics } from '../src/trends.js';
-import { mergeTrendQueries, buildHeadlineSourcePosts } from '../src/pipeline.js';
+import { mergeTrendQueries, buildHeadlineSourcePosts, pickMandateTopic } from '../src/pipeline.js';
 
 const RSS_FIXTURE = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -153,5 +153,65 @@ describe('buildHeadlineSourcePosts', () => {
     expect(posts[0]!.id).toBe('news-1');
     expect(posts[0]!.text).toBe('[Berita hari ini] Kebakaran Baduy Hanguskan Puluhan Rumah');
     expect(posts[0]!.username).toBe('news-rss');
+  });
+});
+
+describe('story focus for single-word topics', () => {
+  it('narrows an ambiguous unigram to its dominant story', () => {
+    // Live miss 2026-11-21: "kebakaran" mixed the Baduy fire with unrelated fires.
+    const titles = [
+      'Kebakaran Hanguskan Kampung Baduy Luar',
+      'Warga Baduy Mengungsi Usai Kebakaran',
+      'Kebakaran di Baduy, Lumbung Pangan Habis',
+      'Kebakaran Baduy Rusak Puluhan Rumah Adat',
+      'Peringatan Kebakaran Dikira Prank',
+      'Kebakaran Rumah di Bogor Tewaskan Dua',
+    ];
+
+    const topics = extractTrendingTopics(titles, 3);
+    const fire = topics.find((t) => t.term.startsWith('kebakaran'))!;
+
+    expect(fire.term).toBe('kebakaran baduy');
+    expect(fire.headlines.every((h) => /baduy/i.test(h))).toBe(true);
+    expect(fire.headlines.join(' ')).not.toMatch(/prank|bogor/i);
+  });
+
+  it('leaves a unigram alone when no co-word defines a story', () => {
+    const titles = [
+      'Makar Disidang Pekan Depan',
+      'Saksi Kasus Makar Dipanggil',
+      'Pengacara Makar Ajukan Banding',
+    ];
+
+    const topics = extractTrendingTopics(titles, 3);
+
+    expect(topics.map((t) => t.term)).toContain('makar');
+  });
+});
+
+describe('pickMandateTopic', () => {
+  const topic = (term: string, titleHits: number) => ({ term, titleHits, headlines: [] });
+  const accepted = new Set(['wapres dasco', 'kebakaran baduy', 'makar']);
+
+  it('skips a story a recent post already covered and takes the next hot one', () => {
+    const picked = pickMandateTopic(
+      [topic('wapres dasco', 15), topic('kebakaran baduy', 9)],
+      accepted,
+      4,
+      ['Dasco dijagokan jadi wapres, gue mau lihat rekam kerjanya.'],
+    );
+
+    expect(picked?.term).toBe('kebakaran baduy');
+  });
+
+  it('respects the title threshold and the disable switch', () => {
+    const topics = [topic('makar', 3)];
+
+    expect(pickMandateTopic(topics, accepted, 4, [])).toBeUndefined();
+    expect(pickMandateTopic([topic('makar', 9)], accepted, 0, [])).toBeUndefined();
+  });
+
+  it('ignores topics that were filtered out of the crawl', () => {
+    expect(pickMandateTopic([topic('arbitrum airdrop', 20)], accepted, 4, [])).toBeUndefined();
   });
 });

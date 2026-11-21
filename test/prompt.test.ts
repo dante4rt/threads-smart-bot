@@ -742,3 +742,15 @@ describe('no invented pledges', () => {
     expect(system).toContain('NEVER invent a personal plan or commitment');
   });
 });
+
+describe('mandate bans headline meta-commentary', () => {
+  it('forbids "Judul berita" openers and media-literacy lectures', () => {
+    const [, user] = buildMessages([{ id: 'news-1', text: '[Berita hari ini] x' }], [], ['x'], {
+      trendMandate: { term: 'wapres dasco', titleHits: 15 },
+    });
+
+    expect(user).toContain('React to the EVENT itself');
+    expect(user).toContain('Do NOT open with "Judul"');
+    expect(SYSTEM_PROMPT).toContain('"Gue lebih pengen [baca/lihat/tahu]"');
+  });
+});

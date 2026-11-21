@@ -155,11 +155,54 @@ export function extractTrendingTopics(titles: string[], maxTerms: number): Trend
     picked.push([term, titleSet]);
   }
 
-  return picked.map(([term, titleSet]) => ({
-    term,
-    titleHits: titleSet.size,
-    headlines: [...titleSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => strippedTitles[i]!),
-  }));
+  return picked.map(([term, titleSet]) => {
+    const [focusedTerm, focusedSet] = focusOnDominantStory(term, titleSet, strippedTitles);
+    return {
+      term: focusedTerm,
+      titleHits: focusedSet.size,
+      headlines: [...focusedSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => strippedTitles[i]!),
+    };
+  });
+}
+
+/** Co-word must appear in this many of the unigram's titles to define its story. */
+const MIN_STORY_CO_HITS = 3;
+const MIN_STORY_CO_SHARE = 0.3;
+
+/**
+ * A bare unigram mixes unrelated stories ("kebakaran" = Baduy fire + a fire-
+ * alarm prank + a Bogor house fire; live miss 2026-11-21, the mandate drafted
+ * about the wrong fire). Narrow it to its most common co-word's headlines.
+ */
+function focusOnDominantStory(
+  term: string,
+  titleSet: Set<number>,
+  titles: string[],
+): [string, Set<number>] {
+  if (term.includes(' ')) return [term, titleSet];
+
+  const coCounts = new Map<string, Set<number>>();
+  for (const i of titleSet) {
+    for (const token of new Set(tokenize(titles[i]!))) {
+      if (token === term || STOPWORDS.has(token) || GENERIC_UNIGRAMS.has(token)) continue;
+      if (token.length < MIN_UNIGRAM_CHARS) continue;
+      if (!coCounts.has(token)) coCounts.set(token, new Set());
+      coCounts.get(token)!.add(i);
+    }
+  }
+
+  let best: [string, Set<number>] | undefined;
+  for (const entry of coCounts) {
+    if (!best || entry[1].size > best[1].size) best = entry;
+  }
+  if (
+    !best ||
+    best[1].size < MIN_STORY_CO_HITS ||
+    best[1].size < titleSet.size * MIN_STORY_CO_SHARE
+  ) {
+    return [term, titleSet];
+  }
+  return [`${term} ${best[0]}`, best[1]];
 }
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
