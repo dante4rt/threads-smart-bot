@@ -116,6 +116,29 @@ describe('fetchTrendingTopics', () => {
 
     await expect(fetchTrendingTopics(['https://a/rss'], 3, fetchFn)).resolves.toEqual([]);
   });
+
+  it('bumps weight for a most-read article already seen in RSS, not a duplicate headline', async () => {
+    const rss = `<rss><channel>
+      <item><title>Kader PSI Ditangkap Polda Metro</title><description>Cakra diperiksa lalu dibebaskan.</description></item>
+      <item><title>Nasib Kader PSI Jadi Sorotan</title></item>
+    </channel></rss>`;
+    const popular = '<h3 class="media__title"><a href="/x">Kader PSI Ditangkap Polda Metro</a></h3>';
+    const fetchFn = (url: string): Promise<Response> =>
+      Promise.resolve(okResponse(url.includes('popular') ? popular : rss));
+
+    const topics = await fetchTrendingTopics(
+      ['https://a/rss'],
+      5,
+      fetchFn,
+      ['https://a/popular'],
+    );
+    const psi = topics.find((t) => t.term.includes('kader psi'))!;
+
+    // 2 distinct headlines (not 3 — the shared article wasn't re-added), heat 3
+    // (shared article bumped to weight 2, plus the RSS-only one at 1).
+    expect(psi.titleCount).toBe(2);
+    expect(psi.titleHits).toBe(3);
+  });
 });
 
 describe('mergeTrendQueries', () => {
@@ -146,6 +169,7 @@ describe('buildHeadlineSourcePosts', () => {
     const posts = buildHeadlineSourcePosts({
       term: 'kebakaran baduy',
       titleHits: 3,
+      titleCount: 3,
       headlines: ['Kebakaran Baduy Hanguskan Puluhan Rumah', 'Donasi Mengalir'],
     });
 
@@ -190,7 +214,7 @@ describe('story focus for single-word topics', () => {
 });
 
 describe('pickMandateTopic', () => {
-  const topic = (term: string, titleHits: number) => ({ term, titleHits, headlines: [] });
+  const topic = (term: string, titleCount: number) => ({ term, titleHits: titleCount, titleCount, headlines: [] });
   const accepted = new Set(['wapres dasco', 'kebakaran baduy', 'makar']);
 
   it('skips a story a recent post already covered and takes the next hot one', () => {

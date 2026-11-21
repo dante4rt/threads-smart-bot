@@ -314,7 +314,7 @@ export function pickMandateTopic(
   const recentLower = recentTexts.map((text) => text.toLowerCase());
   return topics.find((topic) => {
     if (!acceptedTerms.has(topic.term.toLowerCase())) return false;
-    if (topic.titleHits < minTitles) return false;
+    if (topic.titleCount < minTitles) return false;
     const words = topic.term.toLowerCase().split(' ');
     const alreadyCovered = recentLower.some((text) => words.every((w) => text.includes(w)));
     return !alreadyCovered;
@@ -540,6 +540,7 @@ export async function runPipeline(
       logger.info('Trend mandate active', {
         term: mandateTopic.term,
         titleHits: mandateTopic.titleHits,
+        titleCount: mandateTopic.titleCount,
       });
     }
 

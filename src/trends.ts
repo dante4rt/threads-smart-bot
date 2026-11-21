@@ -121,9 +121,11 @@ export interface TrendingTopic {
   term: string;
   /**
    * Heat: distinct headlines the term appeared in, with most-read headlines
-   * counted extra (see POPULAR_TITLE_WEIGHT).
+   * counted extra (see POPULAR_TITLE_WEIGHT). Drives ranking only.
    */
   titleHits: number;
+  /** Raw distinct headlines, unweighted — what the mandate threshold reads. */
+  titleCount: number;
   /** Sample headlines containing the term, for grounding the post on. */
   headlines: string[];
 }
@@ -206,6 +208,7 @@ export function extractTrendingTopics(
     return {
       term: focusedTerm,
       titleHits: heat(focusedSet),
+      titleCount: focusedSet.size,
       headlines: [...focusedSet].slice(0, MAX_HEADLINES_PER_TOPIC).map((i) => {
         const description = descriptions[i];
         // Google News descriptions just repeat the title + related headlines.
@@ -274,8 +277,10 @@ const MAX_POPULAR_TITLES = 15;
 export function parseDetikPopular(html: string): string[] {
   const titles: string[] = [];
   const seen = new Set<string>();
-  const pattern = /<h3[^>]*class="[^"]*media__title[^"]*"[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/g;
-  for (const match of html.matchAll(pattern)) {
+  // Cap before matching: the class-attribute alternation can backtrack on a
+  // pathologically long tag, and the fetch timeout can't interrupt a sync regex.
+  const pattern = /<h3[^>]*\bmedia__title\b[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/g;
+  for (const match of html.slice(0, 2_000_000).matchAll(pattern)) {
     const title = decodeEntities(match[1]!.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
     if (!title || seen.has(title)) continue;
     seen.add(title);
@@ -328,6 +333,12 @@ export async function fetchTrendingTopics(
     }
   }
 
+  // Index existing titles so a most-read headline that is the same article as an
+  // RSS one bumps that entry's weight instead of adding a duplicate — otherwise
+  // one article counts as two headlines and the grounding repeats it.
+  const titleIndex = new Map<string, number>();
+  titles.forEach((title, i) => titleIndex.set(stripSourceSuffix(title).toLowerCase(), i));
+
   let popularTitles = 0;
   for (const url of popularPageUrls) {
     try {
@@ -344,9 +355,18 @@ export async function fetchTrendingTopics(
         logger.warn('Popular page parsed zero titles; markup may have changed', { url });
         continue;
       }
-      titles.push(...pageTitles);
-      descriptions.push(...pageTitles.map(() => ''));
-      weights.push(...pageTitles.map(() => POPULAR_TITLE_WEIGHT));
+      for (const title of pageTitles) {
+        const key = stripSourceSuffix(title).toLowerCase();
+        const existing = titleIndex.get(key);
+        if (existing !== undefined) {
+          weights[existing] = POPULAR_TITLE_WEIGHT;
+          continue;
+        }
+        titleIndex.set(key, titles.length);
+        titles.push(title);
+        descriptions.push('');
+        weights.push(POPULAR_TITLE_WEIGHT);
+      }
       popularTitles += pageTitles.length;
     } catch (err) {
       logger.warn('Popular page fetch failed', { url, error: (err as Error).message });

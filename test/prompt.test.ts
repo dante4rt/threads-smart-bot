@@ -710,7 +710,7 @@ describe('trend mandate section', () => {
 
   it('injects a hard mandate with grounding and tragedy rules', () => {
     const [, user] = buildMessages(sourcePosts, [], ['kebakaran baduy'], {
-      trendMandate: { term: 'kebakaran baduy', titleHits: 5 },
+      trendMandate: { term: 'kebakaran baduy', titleCount: 5 },
     });
 
     expect(user).toContain('TREND MANDATE THIS ROUND');
@@ -723,7 +723,7 @@ describe('trend mandate section', () => {
   it('mandate replaces the soft trending preference', () => {
     const [, user] = buildMessages(sourcePosts, [], ['kebakaran baduy'], {
       trendingQueries: ['kebakaran baduy'],
-      trendMandate: { term: 'kebakaran baduy', titleHits: 5 },
+      trendMandate: { term: 'kebakaran baduy', titleCount: 5 },
     });
 
     expect(user).toContain('TREND MANDATE THIS ROUND');
@@ -734,7 +734,7 @@ describe('trend mandate section', () => {
 describe('no invented pledges', () => {
   it('mandate and system prompt forbid fabricated personal plans', () => {
     const [system, user] = buildMessages([{ id: 'news-1', text: '[Berita hari ini] x' }], [], ['x'], {
-      trendMandate: { term: 'kebakaran', titleHits: 13 },
+      trendMandate: { term: 'kebakaran', titleCount: 13 },
     });
 
     expect(user).toContain('NEVER invent a personal plan');
@@ -746,7 +746,7 @@ describe('no invented pledges', () => {
 describe('mandate bans headline meta-commentary', () => {
   it('forbids "Judul berita" openers and media-literacy lectures', () => {
     const [, user] = buildMessages([{ id: 'news-1', text: '[Berita hari ini] x' }], [], ['x'], {
-      trendMandate: { term: 'wapres dasco', titleHits: 15 },
+      trendMandate: { term: 'wapres dasco', titleCount: 15 },
     });
 
     expect(user).toContain('React to the EVENT itself');
@@ -759,7 +759,7 @@ describe('trend mandate length override', () => {
   it('lifts the short-post rule and demands substance for mandate posts only', () => {
     const sources = [{ id: 'news-1', text: '[Berita hari ini] x' }];
     const [, mandate] = buildMessages(sources, [], ['x'], {
-      trendMandate: { term: 'wapres pemilihan', titleHits: 6 },
+      trendMandate: { term: 'wapres pemilihan', titleCount: 6 },
     });
     const [, normal] = buildMessages(sources, [], ['x']);
 
