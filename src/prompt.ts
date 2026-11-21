@@ -114,6 +114,9 @@ export function buildUserMessage(
     ? `\n\n**Account topic boundary (zero tolerance):** Never write about: ${options.excludedTopics.join(', ')}. Do not use it as a comparison, a joke, a source example, or a fallback topic.`
     : '';
   const authorContextSection = buildAuthorContextSection(options.authorContext, recentPosts);
+  const trendingSection = options.trendingQueries && options.trendingQueries.length > 0
+    ? `\n\n**Trending RIGHT NOW (from Indonesian news/search, confirmed live on Threads):** ${options.trendingQueries.join(', ')}. Source posts fetched for these are the freshest material you have — prefer one of these topics if the posts give you a concrete angle. A take on today's conversation beats an evergreen observation.`
+    : '';
   const sourceSection =
     sourcePosts.length > 0
       ? sourcePosts
@@ -129,7 +132,7 @@ export function buildUserMessage(
 **Current year:** ${currentYear}
 Treat this date context as authoritative. If you mention "tahun ini" or the current year, use ${currentYear}. Do not reuse an outdated year from the source posts.
 
-**Search queries used:** ${queries.join(', ')}${authorContextSection}${accountBoundarySection}
+**Search queries used:** ${queries.join(', ')}${trendingSection}${authorContextSection}${accountBoundarySection}
 
 **Recent topic mix guard:**
 ${topicMixSection}${styleVarietySection}
@@ -202,6 +205,8 @@ interface PromptBuildOptions {
   timezone?: string;
   authorContext?: string;
   excludedTopics?: string[];
+  /** Crawl queries that came from the live trend trigger and returned posts. */
+  trendingQueries?: string[];
 }
 
 function resolvePromptDateContext(

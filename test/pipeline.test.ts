@@ -381,6 +381,8 @@ describe('runPipeline account topic boundary', () => {
       maxSourcePostsPerQuery: 1,
       postTimes: ['12:15'],
       timezone: 'Asia/Jakarta',
+      trendFeeds: [],
+      maxTrendQueries: 3,
       unsplashAccessKey: undefined,
       authorContext: '',
       excludedTopics: ['Arbitrum'],

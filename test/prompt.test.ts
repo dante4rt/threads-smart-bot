@@ -647,3 +647,22 @@ describe('niche floor and closer-ratio guards (Nov 2026 engagement audit)', () =
     expect(SYSTEM_PROMPT).toContain('NEVER assert an accusation');
   });
 });
+
+describe('trending queries section', () => {
+  const sourcePosts: ThreadsPost[] = [{ id: '1', text: 'UMP Jakarta 2027 naik' }];
+
+  it('surfaces confirmed trend queries with a prefer-this instruction', () => {
+    const [, user] = buildMessages(sourcePosts, [], ['ump jakarta', 'startup'], {
+      trendingQueries: ['ump jakarta'],
+    });
+
+    expect(user).toContain('Trending RIGHT NOW');
+    expect(user).toContain('ump jakarta');
+  });
+
+  it('omits the section when no trend query survived the crawl', () => {
+    const [, user] = buildMessages(sourcePosts, [], ['startup'], { trendingQueries: [] });
+
+    expect(user).not.toContain('Trending RIGHT NOW');
+  });
+});

@@ -207,6 +207,15 @@ export interface Config {
   /** Tag used when no category matches. Empty means publish untagged. */
   defaultTopicTag: string;
 
+  /**
+   * RSS feeds (Indonesian news + Google Trends) polled at crawl time to find
+   * what the country is talking about right now. Empty disables the trigger;
+   * the crawl then runs on the static category rotation alone.
+   */
+  trendFeeds: string[];
+  /** How many trending terms are prepended to the day's query pool. */
+  maxTrendQueries: number;
+
   unsplashAccessKey: string | undefined;
   authorContext: string;
   /** Topics this personal account must never source or publish. */
@@ -304,6 +313,17 @@ export function getConfig(): Config {
 
     topicTags: parseTopicTags(optionalEnv('TOPIC_TAGS', '')),
     defaultTopicTag: parseTopicTag(optionalEnv('DEFAULT_TOPIC_TAG', ''), 'DEFAULT_TOPIC_TAG'),
+
+    // Trend trigger feeds (Indonesian news + Google Trends RSS, all verified
+    // live 2026-11-21). TREND_FEEDS='' disables trend-reactive crawling.
+    trendFeeds: optionalEnv(
+      'TREND_FEEDS',
+      'https://news.google.com/rss?hl=id&gl=ID&ceid=ID:id,https://news.detik.com/berita/rss,https://www.cnnindonesia.com/nasional/rss,https://www.antaranews.com/rss/terkini.xml,https://trends.google.com/trending/rss?geo=ID',
+    )
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean),
+    maxTrendQueries: parsePositiveInt(optionalEnv('MAX_TREND_QUERIES', '3'), 'MAX_TREND_QUERIES'),
 
     unsplashAccessKey: process.env['UNSPLASH_ACCESS_KEY'] || undefined,
     authorContext: optionalEnv('AUTHOR_CONTEXT', ''),

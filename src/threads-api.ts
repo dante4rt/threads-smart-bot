@@ -24,6 +24,13 @@ export interface SearchResult {
   data: ThreadsPost[];
 }
 
+export interface KeywordSearchOptions {
+  /** TOP (default) ranks by popularity; RECENT returns the newest posts. */
+  searchType?: 'TOP' | 'RECENT';
+  /** Restrict results to the last N hours via the API's `since` param. */
+  sinceHours?: number;
+}
+
 interface InsightsEntry {
   name: string;
   /** Lifetime metrics (views, likes, replies, reposts, quotes) use this shape. */
@@ -326,12 +333,20 @@ export class ThreadsClient {
 
   // ── Search ───────────────────────────────────────────────────────────────
 
-  async keywordSearch(query: string, limit = 25): Promise<ThreadsPost[]> {
+  async keywordSearch(
+    query: string,
+    limit = 25,
+    options: KeywordSearchOptions = {},
+  ): Promise<ThreadsPost[]> {
     const params = new URLSearchParams({
       q: query,
-      search_type: 'TOP',
+      search_type: options.searchType ?? 'TOP',
       limit: String(limit),
     });
+    if (options.sinceHours !== undefined) {
+      const since = Math.floor(Date.now() / 1000) - options.sinceHours * 3600;
+      params.set('since', String(since));
+    }
 
     const result = await this.withAuthRetry<SearchResult>(() =>
       apiFetch<SearchResult>(`${BASE_URL}/keyword_search?${params}`, {

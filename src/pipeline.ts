@@ -19,6 +19,7 @@ import { buildMessages } from './prompt.js';
 import { generateGroundedPost, verifyPostGrounding } from './fact-check.js';
 import { evaluateCaption } from './jev.js';
 import { findImage } from './media.js';
+import { fetchTrendingTerms } from './trends.js';
 import { pickRandom, dedupeBy, truncate, sanitizePost } from './utils.js';
 import type { Config } from './config.js';
 import type { Post } from './db.js';
@@ -269,6 +270,33 @@ export function resolveTopicTag(
   return defaultTopicTag;
 }
 
+/**
+ * Prepend today's trending terms to the rotated query pool. Trend terms lead so
+ * the crawl's early-exit (minSourcePosts/minSourceQueries) samples them first;
+ * excluded topics and duplicates are dropped. Pure for testability.
+ */
+export function mergeTrendQueries(
+  trendTerms: string[],
+  dailyQueryPool: string[],
+  excludedTopics: string[],
+  maxTrendQueries: number,
+): { crawlQueries: string[]; trendQuerySet: Set<string> } {
+  const poolLower = new Set(dailyQueryPool.map((q) => q.trim().toLowerCase()));
+  const accepted: string[] = [];
+  for (const term of trendTerms) {
+    if (accepted.length >= maxTrendQueries) break;
+    const normalized = term.trim();
+    if (!normalized) continue;
+    if (poolLower.has(normalized.toLowerCase())) continue;
+    if (findExcludedTopic(normalized, excludedTopics)) continue;
+    accepted.push(normalized);
+  }
+  return {
+    crawlQueries: [...accepted, ...dailyQueryPool],
+    trendQuerySet: new Set(accepted.map((q) => q.toLowerCase())),
+  };
+}
+
 export async function collectSourcePosts(
   searchQueries: string[],
   minSourcePosts: number,
@@ -437,12 +465,53 @@ export async function runPipeline(
       config.timezone,
       config.excludedTopics,
     );
+
+    // Trend trigger: what is Indonesia talking about right now. Fail-soft — a
+    // dead feed or an API rejecting `since` must never cost the run.
+    let trendTerms: string[] = [];
+    if (config.trendFeeds.length > 0) {
+      try {
+        trendTerms = await fetchTrendingTerms(config.trendFeeds, config.maxTrendQueries * 2);
+      } catch (err) {
+        logger.warn('Trend detection failed; crawling static pool only', {
+          error: (err as Error).message,
+        });
+      }
+    }
+    const { crawlQueries, trendQuerySet } = mergeTrendQueries(
+      trendTerms,
+      dailyQueryPool,
+      config.excludedTopics,
+      config.maxTrendQueries,
+    );
+
+    const searchWithTrendMode = async (query: string, limit: number): Promise<ThreadsPost[]> => {
+      if (!trendQuerySet.has(query.toLowerCase())) {
+        return withRetry(() => threadsClient.keywordSearch(query, limit));
+      }
+      try {
+        // RECENT confirms the topic is moving on Threads *now*; TOP would
+        // surface last month's posts for the same words. `since` is NOT used:
+        // probed live 2026-11-21, it thins results to near-zero (48h window
+        // returned 1 post for a term where plain RECENT returned a full page).
+        return await withRetry(() =>
+          threadsClient.keywordSearch(query, limit, { searchType: 'RECENT' }),
+        );
+      } catch (err) {
+        logger.warn('Trend query failed; continuing with static queries', {
+          query,
+          error: (err as Error).message,
+        });
+        return [];
+      }
+    };
+
     const { posts: allPosts, usedQueries, successfulQueries, queryResults } = await collectSourcePosts(
       config.searchQueries,
       config.minSourcePosts,
       config.minSourceQueries,
-      (query, limit) => withRetry(() => threadsClient.keywordSearch(query, limit)),
-      dailyQueryPool,
+      searchWithTrendMode,
+      crawlQueries,
       config.excludedTopics,
     );
 
@@ -481,10 +550,14 @@ export async function runPipeline(
       queryResults,
       config.maxSourcePostsPerQuery,
     );
+    const confirmedTrendQueries = successfulQueries.filter((q) =>
+      trendQuerySet.has(q.toLowerCase()),
+    );
     const [systemPrompt, userMessage] = buildMessages(promptSourcePosts, recentPosts, successfulQueries, {
       timezone: config.timezone,
       authorContext: config.authorContext || undefined,
       excludedTopics: config.excludedTopics,
+      trendingQueries: confirmedTrendQueries,
     });
 
     logger.info('Craft stage', {
