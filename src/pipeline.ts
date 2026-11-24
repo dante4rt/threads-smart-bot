@@ -66,7 +66,8 @@ const AI_QUERY_PATTERN = /\b(ai|artificial intelligence|chatgpt|openai|claude|ge
 let runInProgress = false;
 
 async function waitBeforeCaptionRetry(attempt: number): Promise<void> {
-  if (attempt < 3) return;
+  // The last attempt exits at the next loop check; sleeping first only delays it.
+  if (attempt < 3 || attempt >= MAX_CAPTION_ATTEMPTS) return;
   const delayMs = Math.min(CAPTION_RETRY_DELAY_CAP_MS, 5_000 * 2 ** Math.min(attempt - 3, 6));
   logger.warn('Waiting before another caption attempt', { attempt, delayMs });
   await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -646,8 +647,8 @@ export async function runPipeline(
     if (!config.jevEnabled) {
       logger.info('JEV gate disabled; using existing craft flow', { runId });
     }
-    // Keep this run active until a caption passes. Later scheduled runs wait on
-    // runInProgress, so only one caption can be in the approval loop at a time.
+    // Retry captions up to MAX_CAPTION_ATTEMPTS while holding runInProgress, so
+    // only one caption is in the approval loop at a time.
     // Best JEV-scored caption that already cleared every hard gate (grounding,
     // topic boundary). JEV ranks quality; it must not be able to stall posting.
     let bestCandidate: { text: string; score: number } | undefined;

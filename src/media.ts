@@ -5,6 +5,8 @@ import { logger } from './logger.js';
 import { extractKeywords } from './utils.js';
 
 const UNSPLASH_BASE = 'https://api.unsplash.com';
+/** Image is optional; a stalled Unsplash call must not hang the run lock. */
+const UNSPLASH_TIMEOUT_MS = 15 * 1000;
 const RESULTS_PER_PAGE = 10;
 
 interface UnsplashPhoto {
@@ -58,6 +60,7 @@ export async function findImage(
   let res: Response;
   try {
     res = await fetch(url, {
+      signal: AbortSignal.timeout(UNSPLASH_TIMEOUT_MS),
       headers: {
         Authorization: `Client-ID ${unsplashAccessKey}`,
         'Accept-Version': 'v1',
@@ -75,7 +78,15 @@ export async function findImage(
     return undefined;
   }
 
-  const data = (await res.json()) as UnsplashSearchResult;
+  let data: UnsplashSearchResult;
+  try {
+    data = (await res.json()) as UnsplashSearchResult;
+  } catch (err) {
+    logger.warn('Unsplash response unreadable, posting text-only', {
+      error: (err as Error).message,
+    });
+    return undefined;
+  }
 
   // Pick the first unused image
   const unusedPhoto = data.results.find((photo) => !usedIds.has(photo.id));
@@ -88,6 +99,7 @@ export async function findImage(
     const fallbackUrl = `${UNSPLASH_BASE}/search/photos?query=${encodeURIComponent(fallbackKeyword)}&per_page=${RESULTS_PER_PAGE}&orientation=landscape&page=2`;
     try {
       const fallbackRes = await fetch(fallbackUrl, {
+        signal: AbortSignal.timeout(UNSPLASH_TIMEOUT_MS),
         headers: {
           Authorization: `Client-ID ${unsplashAccessKey}`,
           'Accept-Version': 'v1',
