@@ -197,14 +197,18 @@ export function extractTrendingTopics(
   const picked: Array<[string, Set<number>]> = [];
   for (const entry of ranked) {
     if (picked.length >= maxTerms) break;
-    const [term, titleSet] = promote(entry[0], entry[1]);
-    // Skip terms contained in (or containing) an already-picked stronger term.
-    if (picked.some(([p]) => p.includes(term) || term.includes(p))) continue;
+    const [promotedTerm, promotedSet] = promote(entry[0], entry[1]);
+    // Focus before dedupe: a bare "cawapres" passes the check, then focuses
+    // into "cawapres amran" beside "amran sugiono" (live, 2026-11-24).
+    const [term, titleSet] = focusOnDominantStory(promotedTerm, promotedSet, strippedTitles);
+    // Skip terms sharing a content word with an already-picked stronger term:
+    // substring checks let "sugiono amran" and "polri makar" through beside
+    // "amran sugiono" / "kasus makar".
+    if (picked.some(([p]) => isSameStory(p, term))) continue;
     picked.push([term, titleSet]);
   }
 
-  return picked.map(([term, titleSet]) => {
-    const [focusedTerm, focusedSet] = focusOnDominantStory(term, titleSet, strippedTitles);
+  return picked.map(([focusedTerm, focusedSet]) => {
     return {
       term: focusedTerm,
       titleHits: heat(focusedSet),
@@ -217,6 +221,20 @@ export function extractTrendingTopics(
       }),
     };
   });
+}
+
+function contentWords(term: string): string[] {
+  return term
+    .split(' ')
+    .filter((w) => w.length >= MIN_UNIGRAM_CHARS && !STOPWORDS.has(w) && !GENERIC_UNIGRAMS.has(w));
+}
+
+/** Two terms are one story when they share a content word (falls back to substring). */
+function isSameStory(a: string, b: string): boolean {
+  const wordsA = contentWords(a);
+  const wordsB = new Set(contentWords(b));
+  if (wordsA.length === 0 || wordsB.size === 0) return a.includes(b) || b.includes(a);
+  return wordsA.some((w) => wordsB.has(w));
 }
 
 /** Co-word must appear in this many of the unigram's titles to define its story. */

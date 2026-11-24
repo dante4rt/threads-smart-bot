@@ -296,3 +296,27 @@ describe('parseDetikPopular + most-read weighting', () => {
     expect(psi?.titleHits).toBe(3);
   });
 });
+
+describe('same-story dedupe across word order and shared names', () => {
+  it('keeps one entry per story instead of reversed or name-sharing variants', () => {
+    // Live 2026-11-24: "amran sugiono", "sugiono amran", "cawapres amran",
+    // "kasus makar", "polri makar" filled 5 of 6 slots with 2 stories.
+    const titles = [
+      'Amran Sugiono Dijagokan Cawapres',
+      'Sugiono Amran Digadang Jadi Cawapres',
+      'Cawapres Amran Disorot Pengamat',
+      'Amran Sugiono Temui Ketum Partai',
+      'Kasus Makar Brigjen Disidang',
+      'Polri Makar Ajukan Banding',
+      'Kasus Makar Masuk Tahap Banding',
+      'Kebakaran Pabrik di Cikande',
+      'Kebakaran Pabrik Tewaskan Pekerja',
+    ];
+
+    const terms = extractTrendingTopics(titles, 6).map((t) => t.term);
+
+    expect(terms.filter((t) => t.includes('amran') || t.includes('sugiono'))).toHaveLength(1);
+    expect(terms.filter((t) => t.includes('makar'))).toHaveLength(1);
+    expect(terms.some((t) => t.includes('kebakaran pabrik'))).toBe(true);
+  });
+});
