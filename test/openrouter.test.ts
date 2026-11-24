@@ -104,6 +104,8 @@ describe('OpenRouterClient.chat budget escalation', () => {
     // Every attempt must request JSON; an omitted stream flag is ambiguous in 9router.
     for (const [, init] of fetchMock.mock.calls) {
       expect(JSON.parse((init as RequestInit).body as string).stream).toBe(false);
+      // A stalled gateway connection must time out, not hang the run lock.
+      expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
     }
   });
 

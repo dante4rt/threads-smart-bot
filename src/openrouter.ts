@@ -125,6 +125,7 @@ export class TruncatedCompletionError extends Error {}
 /** Extra budget attempts after the first, each doubling. Bounded so a model that never finishes fails fast. */
 const MAX_BUDGET_ESCALATIONS = 2;
 const MAX_TOKEN_BUDGET = 32000;
+const LLM_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class OpenRouterClient {
   constructor(private readonly config: Config) {}
@@ -169,6 +170,9 @@ export class OpenRouterClient {
     let res: Response;
     try {
       res = await fetch(resolveChatCompletionsUrl(this.config.llmBaseUrl), {
+        // Without a deadline one stalled gateway connection hangs the run (and
+        // its lock) forever. Generous: reasoning models can take minutes.
+        signal: AbortSignal.timeout(LLM_REQUEST_TIMEOUT_MS),
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.config.openrouterApiKey}`,

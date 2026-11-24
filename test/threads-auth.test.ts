@@ -128,6 +128,8 @@ describe('Threads keyword search', () => {
     expect(url.searchParams.get('fields')).toBe('id,text,timestamp,username');
     expect(url.searchParams.get('search_type')).toBe('TOP');
     expect(url.searchParams.get('since')).toBeNull();
+    // A stalled Graph API connection must time out, not hang the run lock.
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
     db.close();
   });
 

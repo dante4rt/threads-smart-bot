@@ -31,6 +31,12 @@ const TARGET_POST_CHARS = 350;
 const POSTS_PER_QUERY = 25;
 const MAX_COMPRESSION_ATTEMPTS = 2;
 const CAPTION_RETRY_DELAY_CAP_MS = 5 * 60 * 1000;
+/**
+ * Hard ceiling on caption regenerations per run. Unbounded, a strict
+ * JEV_MIN_SCORE held the run lock for 2+ days (2026-11-22) and every later
+ * scheduled run skipped. With the current backoff this caps a run near 2 min.
+ */
+const MAX_CAPTION_ATTEMPTS = 6;
 const TREND_FIRST_FALLBACK_SEARCH_QUERIES = [
   'trending',
   'viral',
@@ -642,7 +648,26 @@ export async function runPipeline(
     }
     // Keep this run active until a caption passes. Later scheduled runs wait on
     // runInProgress, so only one caption can be in the approval loop at a time.
+    // Best JEV-scored caption that already cleared every hard gate (grounding,
+    // topic boundary). JEV ranks quality; it must not be able to stall posting.
+    let bestCandidate: { text: string; score: number } | undefined;
     for (let captionAttempt = 1; ; captionAttempt++) {
+      if (captionAttempt > MAX_CAPTION_ATTEMPTS) {
+        if (bestCandidate) {
+          logger.warn('Caption attempts exhausted; publishing best JEV-scored caption', {
+            runId,
+            attempts: MAX_CAPTION_ATTEMPTS,
+            score: bestCandidate.score,
+            minScore: config.jevMinScore,
+          });
+          safeText = bestCandidate.text;
+          break;
+        }
+        const message = `No caption cleared the hard gates after ${MAX_CAPTION_ATTEMPTS} attempts.`;
+        logger.warn('Caption attempts exhausted; skipping run', { runId, attempts: MAX_CAPTION_ATTEMPTS });
+        completeRun(db, runId, 'failed', message);
+        return { status: 'skipped', error: message };
+      }
       const grounded = await generateGroundedPost(
         [
           { role: 'system', content: systemPrompt },
@@ -747,6 +772,9 @@ export async function runPipeline(
           dimensions: assessment.dimensions,
         });
         if (!assessment.approved) {
+          if (!bestCandidate || assessment.score > bestCandidate.score) {
+            bestCandidate = { text: candidate, score: assessment.score };
+          }
           logger.warn('JEV rejected caption; regenerating', {
             runId,
             captionAttempt,

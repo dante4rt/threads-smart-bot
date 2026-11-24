@@ -96,6 +96,32 @@ describe('JEV caption gate', () => {
     }
   });
 
+  it('stops after the attempt cap and publishes the best-scored caption', async () => {
+    // Regression 2026-11-22: JEV_MIN_SCORE=0.8 vs drafts scoring 0.62-0.78 looped
+    // 176+ times, held the run lock for days, and every later schedule skipped.
+    const { db, config } = setupPipeline();
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
+      fn();
+      return 0;
+    }) as never);
+    const jev = stubJev(0.5, 0.6, 0.62, 0.55, 0.58, 0.6);
+    const chat = vi.spyOn(OpenRouterClient.prototype, 'chat');
+    for (const draft of ['Draft satu.', 'Draft dua.', 'Draft tiga terbaik.', 'Draft empat.', 'Draft lima.', 'Draft enam.']) {
+      chat.mockResolvedValueOnce(draft).mockResolvedValueOnce('{"grounded":true,"violations":[]}');
+    }
+    try {
+      const result = await runPipeline(config, db);
+
+      expect(jev).toHaveBeenCalledTimes(6);
+      expect(result).toMatchObject({ status: 'success', postId: 'post-1' });
+      expect(db.prepare('SELECT generated_text FROM posts').get()).toEqual({
+        generated_text: 'Draft tiga terbaik.',
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it('keeps regenerating after consecutive rejections', async () => {
     const { db, config } = setupPipeline();
     const jev = stubJev(0.2, 0.4, 0.8);

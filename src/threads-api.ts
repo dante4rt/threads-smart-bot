@@ -12,6 +12,8 @@ const AUTH_BASE = 'https://threads.net/oauth';
 const OAUTH_API_BASE = 'https://graph.threads.net/oauth';
 const TOKEN_BASE = 'https://graph.threads.net';
 const USER_ID_PATTERN = /^\d+$/;
+/** A stalled Graph API connection must fail the call, not hang the run lock. */
+const THREADS_REQUEST_TIMEOUT_MS = 60 * 1000;
 
 export interface ThreadsPost {
   id: string;
@@ -92,7 +94,7 @@ async function apiFetch<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, opts);
+    res = await fetch(url, { signal: AbortSignal.timeout(THREADS_REQUEST_TIMEOUT_MS), ...opts });
   } catch (err) {
     throw new TransientError(`Network error: ${(err as Error).message}`);
   }
